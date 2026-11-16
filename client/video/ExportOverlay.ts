@@ -1,4 +1,4 @@
-import { type CinematicDemoPlayer, type CinematicRecipe, shotCard } from "../CinematicDemoPlayer";
+import type { CinematicDemoPlayer, CinematicRecipe } from "../CinematicDemoPlayer";
 import { drawReelEffects } from "../ReelEffects";
 
 /** Reel graphics share their copy/data with playback; controls stay outside this surface. */
@@ -8,7 +8,7 @@ export function drawReelOverlay(
   recipe: CinematicRecipe,
 ): void {
   const { width, height } = context.canvas;
-  // The comic effects first, at the movie's own size, so the veil covers them as it covers the picture
+  // The comic effects and the scene's tag first, at the movie's own size, so the veil covers them as it covers the picture
   drawReelEffects(context, player.getEffects(), width, height);
   context.save();
   context.scale(width / 1920, height / 1080);
@@ -42,24 +42,6 @@ export function drawReelOverlay(
     centered(`${summary?.frags ?? 0} frag scenes · ${summary?.tricks ?? 0} trick jumps`, 430, 38);
     if (summary?.topFragger) centered(`${summary.topFragger.name} · ${summary.topFragger.frags} frags`, 565, 46);
     if (summary?.best) centered(`${summary.best.title} · ${summary.best.player}`, 705, 30, "#b9cbe5");
-  } else {
-    const segment = recipe.reel.segments[player.getReelInfo().currentSegment];
-    const alpha = Math.max(0, Math.min(1, (2200 - player.getShotElapsedMs()) / 600));
-    if (segment && alpha > 0) {
-      const card = shotCard(segment, recipe.reel.totalScenes);
-      context.globalAlpha = alpha;
-      context.fillStyle = "rgba(8,13,23,.8)";
-      context.fillRect(65, 825, 1100, 190);
-      context.textAlign = "left";
-      context.font = "700 20px Orbitron, sans-serif";
-      context.fillStyle = "#ffd21c";
-      context.fillText(card.kicker.toUpperCase(), 90, 865);
-      context.font = "700 36px Orbitron, sans-serif";
-      context.fillStyle = "#ffffff";
-      context.fillText(card.title, 90, 920, 1040);
-      context.font = "500 30px Rajdhani, sans-serif";
-      context.fillText(`${card.player}${card.detail ? ` · ${card.detail}` : ""}`, 90, 975, 1040);
-    }
   }
   context.restore();
 }

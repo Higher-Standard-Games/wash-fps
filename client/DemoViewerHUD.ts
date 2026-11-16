@@ -3,10 +3,10 @@
  *
  * A timeline, play/pause, the game HUD switch, the time, a minimize switch and
  * an exit plate, in the HUD's own look. A demo adds speed and whose eyes the
- * view is behind; a reel adds previous/next shot, a tick on the timeline per
- * shot and a card naming each one. While playback runs untouched the controls
- * fade away, so what is on screen is the player's own screen; moving the
- * mouse, pausing or pointing at them brings them back. Minimized, the bar is a
+ * view is behind; a reel adds previous/next shot and a tick on the timeline per
+ * shot. While playback runs untouched the controls fade away, so what is on
+ * screen is the player's own screen; moving the mouse, pausing or pointing at
+ * them brings them back. Minimized, the bar is a
  * thin strip along the bottom, for recording a reel.
  */
 
@@ -19,9 +19,6 @@ import demoViewerHudCss from "./styles/DemoViewerHUD.css?raw";
 
 /** How long the controls stay up after the mouse or a key last moved. */
 const IDLE_AFTER_MS = 2500;
-/** How long a shot's card stays up after the shot starts. */
-const CARD_MS = 3500;
-
 const STATUS: Record<string, string> = {
   idle: "Demo",
   loaded: "Ready",
@@ -56,15 +53,6 @@ export interface DemoTimelineEvent {
   seekTo: number;
   kind: "frag" | "death" | "other";
   label: string;
-}
-
-/** A shot's card: what it is, whose it is, and what made it. */
-export interface ShotCard {
-  kicker: string;
-  title: string;
-  player: string;
-  detail: string;
-  tags: string[];
 }
 
 /**
@@ -107,7 +95,6 @@ export class DemoViewerHUD {
   private lastTotalMs = -1;
   private readonly keyLabels = new WeakMap<HTMLElement, string>();
   private exitPlate: HTMLButtonElement | null = null;
-  private card: HTMLDivElement | null = null;
   /** A reel's transitions over the picture; part of the picture, so H leaves it. */
   private veil: HTMLDivElement | null = null;
   /** A reel's comic effects over the picture, under the veil: speed lines, freeze frames, frag counters. */
@@ -154,7 +141,6 @@ export class DemoViewerHUD {
   private isDragging = false;
   private hovered = false;
   private lastActivity = performance.now();
-  private cardTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly listeners = new AbortController();
 
   /**
@@ -227,10 +213,6 @@ export class DemoViewerHUD {
     this.exitPlate.title = "Leave playback (Esc)";
     this.exitPlate.setAttribute("aria-label", "Leave playback");
 
-    this.card = el("div", "dvh-card");
-    this.card.id = "demo-viewer-card";
-    this.card.setAttribute("aria-live", "polite");
-
     this.veil = el("div", "dvh-veil");
     this.veil.id = "demo-viewer-veil";
     this.effects = document.createElement("canvas");
@@ -263,15 +245,7 @@ export class DemoViewerHUD {
     this.endKeys.append(keys);
     this.setGameHudVisible(true);
     this.setupEvents();
-    document.body.append(
-      this.effects,
-      this.veil,
-      this.titleCard,
-      this.container,
-      this.exitPlate,
-      this.card,
-      this.endKeys,
-    );
+    document.body.append(this.effects, this.veil, this.titleCard, this.container, this.exitPlate, this.endKeys);
   }
 
   private setupEvents(): void {
@@ -483,23 +457,6 @@ export class DemoViewerHUD {
     if (shown) drawReelEffects(context, effects, width, height);
   }
 
-  /** The card for a shot that just started; it goes again after a few seconds. */
-  showCard(card: ShotCard): void {
-    if (!this.card) return;
-    const tags = el("div", "dvh-card-tags");
-    tags.append(...card.tags.map((tag) => el("span", "dvh-card-tag", tag)));
-    this.card.replaceChildren(
-      el("div", "dvh-card-kicker", card.kicker),
-      el("div", "dvh-card-title", card.title),
-      el("div", "dvh-card-player", card.player),
-      ...(card.detail ? [el("div", "dvh-card-detail", card.detail)] : []),
-      ...(card.tags.length ? [tags] : []),
-    );
-    this.card.classList.add("is-shown");
-    if (this.cardTimer !== null) clearTimeout(this.cardTimer);
-    this.cardTimer = setTimeout(() => this.card?.classList.remove("is-shown"), CARD_MS);
-  }
-
   // ── Callbacks ───────────────────────────────────────────────────
 
   /** Mark the demo's frags and deaths under the seek bar; a click seeks to one. */
@@ -616,29 +573,25 @@ export class DemoViewerHUD {
     document.body.classList.remove("dvh-clean");
     if (this.container) this.container.style.display = "flex";
     if (this.exitPlate) this.exitPlate.style.display = "";
-    if (this.card) this.card.style.display = "";
   }
 
   /**
    * The clean view (H): nothing over the picture but the picture, for
-   * recording. The controls, the exit plate, the shot cards and the mouse
-   * pointer go; a reel's title and end cards are part of the video and stay.
+   * recording. The controls, the exit plate and the mouse pointer go; a
+   * reel's title and end cards and its comic effects are part of the video and
+   * stay.
    */
   hide(): void {
     document.body.classList.add("dvh-clean");
     if (this.container) this.container.style.display = "none";
     if (this.exitPlate) this.exitPlate.style.display = "none";
-    if (this.card) this.card.style.display = "none";
   }
 
   dispose(): void {
     document.body.classList.remove("dvh-clean");
     this.listeners.abort();
-    if (this.cardTimer !== null) clearTimeout(this.cardTimer);
-    this.cardTimer = null;
     this.container?.remove();
     this.exitPlate?.remove();
-    this.card?.remove();
     this.veil?.remove();
     this.veil = null;
     this.effects?.remove();
@@ -650,7 +603,6 @@ export class DemoViewerHUD {
     this.titleCard = null;
     this.container = null;
     this.exitPlate = null;
-    this.card = null;
     this.timeline = null;
     this.timelineFill = null;
     this.timelineHandle = null;

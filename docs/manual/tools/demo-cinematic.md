@@ -12,7 +12,7 @@ demoplay cinematic 2          # play a 2-minute reel
 
 From the lobby's Demos page, **⚡ Highlights** does the same and lets you pick a reel
 of **1, 2 or 3 minutes**. The shared playback bar offers pause, a timeline and
-previous/next shot controls; the card and counter number the highlights. **HUD** toggles the game HUD during first-person shots;
+previous/next shot controls; the counter numbers the highlights. **HUD** toggles the game HUD during first-person shots;
 **Space** pauses, **←** / **→** go to the previous or next shot, and **H** switches the clean view
 (no overlays, chat or pointer) for recording.
 **Escape** or the gold exit plate leaves playback. When a reel ends, **Replay** plays it again and **Exit** goes back to the demos. See [Demos](../multiplayer/demos.md#keys) for every key.
@@ -72,9 +72,13 @@ Each scene ends with a fade to black, a white flash or a crossfade into the next
 
 ### Freeze frames
 
-The reel's best frag scene, and any play of three or more frags, ends on a **freeze frame**, in one scene of three at most and never more than three a reel: just after the frag, the ending orbit stops for 1.4 seconds as a comic panel, with a paper border, halftone corners and a caption burst (**DOUBLE!**, **TRIPLE!**, **QUAD!**, *n* **FRAGS!**; for a single frag **ROCKET JUMP!**, **AIRSHOT!**, **SNIPED!**, **CLUTCH!**, **REVENGE!** or **FRAG!**).
+Three frag scenes of a reel end on a **freeze frame** (every frag scene, when it has fewer). The coolest plays come first: three frags or more, then air rockets and blade frags, then rocket-jump frags, then double kills, mid-air frags and long shots, and the higher score among equals. Just after the frag, the ending orbit stops for 1.4 seconds as a comic panel, with a paper border, halftone corners and a caption burst (**DOUBLE!**, **TRIPLE!**, **QUAD!**, *n* **FRAGS!**; for a single frag **AIR ROCKET!**, **SLICED!**, **ROCKET JUMP!**, **AIRSHOT!**, **SNIPED!**, **CLUTCH!**, **REVENGE!** or **FRAG!**).
 
-The speed lines, freeze frames and frag counters are drawn by the same code in the demo viewer and in an exported video, so a video shows what the viewer shows.
+### Scene tag
+
+A quarter of a second into each scene, a comic caption slides into the lower left for about three seconds: the player's name on a paper box over the play on a gold one (**AIR ROCKET**, **TRIPLE KILL**, **4-FRAG RUN**, **WALL CLIMB**, **ROCKET FRAG**, ...). It names the player whose play it is and nothing more; it does not come back for the scene's later shots, and a freeze frame's caption replaces it.
+
+The speed lines, freeze frames, frag counters and scene tags are drawn by the same code in the demo viewer and in an exported video, so a video shows what the viewer shows.
 
 ### Movement clips
 
@@ -115,6 +119,7 @@ A kill starts at 10 points. Tags then multiply the score:
 
 | Tag | × | Tag | × |
 |-----|--:|-----|--:|
+| `air_rocket` (a rocket or grenade into a victim 32 units or more above the ground) | 1.9 | `blade` (a blade frag) | 1.6 |
 | `rocket_jump` (rising over 450 u/s) | 1.8 | `unstoppable` | 1.6 |
 | `airborne` | 1.5 | `raging` | 1.4 |
 | `first_blood` | 1.5 | `low_hp` (under 30 HP) | 1.3 |

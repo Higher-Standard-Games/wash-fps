@@ -207,16 +207,6 @@ describe("DemoViewerHUD", () => {
     expect(document.body.classList.contains("dvh-clean")).toBe(false);
   });
 
-  it("shows a shot's card", () => {
-    const hud = new DemoViewerHUD();
-    hud.showCard({ kicker: "Highlight 1/3", title: "Frag", player: "Ramen → Gyoza", detail: "rocket", tags: ["Air"] });
-    const card = document.querySelector("#demo-viewer-card");
-    expect(card?.classList.contains("is-shown")).toBe(true);
-    expect(card?.textContent).toContain("Ramen → Gyoza");
-    hud.dispose();
-    expect(document.querySelector("#demo-viewer-card")).toBeNull();
-  });
-
   it("takes its styles with it", () => {
     const hud = new DemoViewerHUD();
     expect(document.querySelector("style#ui-styles-demo-viewer-hud")).not.toBeNull();

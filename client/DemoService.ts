@@ -38,13 +38,7 @@ import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { isClientKey, toClientKey } from "../ClientEntityKey";
-import {
-  CinematicDemoPlayer,
-  type CinematicRecipe,
-  groundClearanceIn,
-  type ReelWorld,
-  shotCard,
-} from "./CinematicDemoPlayer";
+import { CinematicDemoPlayer, type CinematicRecipe, groundClearanceIn, type ReelWorld } from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
 import { CampaignCutscene } from "./campaign/CampaignCutscene";
 import { missionLook } from "./campaign/CampaignSession";
@@ -503,9 +497,6 @@ export class DemoService {
       if (this.abandonStart(start, viewer)) return;
       const player = new CinematicDemoPlayer(viewer, cameraSystem, this.reelWorld(), { titleHoldMs: REEL_TITLE_MS });
       this.activeCinematicPlayer = player;
-      player.onSegmentChange((segment) => {
-        this.demoHud?.showCard(shotCard(segment, player.getReelInfo().totalScenes));
-      });
       player.onStateChange((state) => {
         if (state === "ended") {
           const summary = player.getSummary();

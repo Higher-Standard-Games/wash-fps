@@ -21,7 +21,12 @@ import type { FreeflyController } from "../../../engine/camera/controllers/Freef
 import type { SpectatorController } from "../../../engine/camera/controllers/SpectatorController";
 import { PLAYER_ORIGIN_HEIGHT } from "../../../shared/bsp/SpawnPointTable";
 import { type CameraPathResult, generateCameraPath, interpolatePath } from "../../../shared/demo/CinematicCameraPaths";
-import type { DemoAnalysis, GroundClearance, HighlightCandidate } from "../../../shared/demo/DemoAnalyzer";
+import type {
+  DemoAnalysis,
+  GroundClearance,
+  HighlightCandidate,
+  HighlightTag,
+} from "../../../shared/demo/DemoAnalyzer";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import { type DemoHeader, DemoReader } from "../../../shared/demo/DemoReader";
 import {
@@ -48,47 +53,53 @@ export interface CinematicRecipe {
   titleHoldMs: number;
 }
 
-const HIGHLIGHT_LABELS: Record<string, string> = {
-  frag: "Frag",
-  multi_kill: "Multi kill",
-  frag_sequence: "Frag sequence",
-  airborne_frag: "Airborne frag",
-  streak_kill: "Streak kill",
-  first_blood: "First blood",
-  movement: "Trick jump",
+const WEAPON_NAMES: Record<string, string> = {
+  rlauncher: "Rocket",
+  glauncher: "Grenade",
+  electrobolt: "Electrobolt",
+  lasergun: "Laser",
+  plasmagun: "Plasma",
+  riotgun: "Riotgun",
+  machinegun: "Machinegun",
+  voltaic: "Voltaic",
+  blade: "Blade",
 };
 
-const TAG_LABELS: Record<string, string> = {
-  airborne: "Air",
-  rocket_jump: "RJ",
-  low_hp: "Low HP",
-  close_range: "Close",
-  long_range: "Long",
-  multi_kill: "Multi",
-  revenge: "Revenge",
-  first_blood: "First",
-  on_fire: "On fire",
-  raging: "Raging",
-  unstoppable: "Unstoppable",
-  high_speed: "Speed",
-  trick_jump: "Combo",
-  height_gain: "Climb",
-  wall_jump: "Wall jump",
-  slide: "Slide",
-  bunny_hop: "Hops",
-};
+const MULTI_KILL_NAMES = ["", "Frag", "Double kill", "Triple kill", "Quad kill"];
 
-/** A shot's card, as the playback controls show it when the shot starts. */
-export function shotCard(segment: CinematicSegment, totalScenes: number) {
-  const h = segment.highlight;
-  const kills = h.killCount && h.killCount > 1 ? ` ×${h.killCount}` : "";
-  return {
-    kicker: `${segment.isReplay ? "Replay" : "Highlight"} ${segment.scene + 1}/${totalScenes}`,
-    title: `${HIGHLIGHT_LABELS[h.type] ?? h.type.replace(/_/g, " ")}${kills}`,
-    player: h.victimPlayerName ? `${h.primaryPlayerName} → ${h.victimPlayerName}` : h.primaryPlayerName,
-    detail: h.weaponId ? h.weaponId.replace(/_/g, " ") : "",
-    tags: h.tags.map((tag) => TAG_LABELS[tag] ?? tag.replace(/_/g, " ")),
-  };
+/** What a scene's tag says: whose play it is, and what they did. */
+export interface SceneTag {
+  who: string;
+  what: string;
+}
+
+/** The scene's tag: the player, and the one trick that names the play. */
+export function sceneTag(h: HighlightCandidate): SceneTag {
+  return { who: h.primaryPlayerName, what: trickName(h) };
+}
+
+function trickName(h: HighlightCandidate): string {
+  const kills = h.killCount ?? 1;
+  const has = (tag: HighlightTag) => h.tags.includes(tag);
+  if (h.type === "frag_sequence") return `${kills}-frag run`;
+  if (kills >= 2) return MULTI_KILL_NAMES[kills] ?? `${kills} kills`;
+  if (h.type === "movement") {
+    if (has("wall_jump") && has("height_gain")) return "Wall climb";
+    if (has("bunny_hop")) return "Bunny hops";
+    if (has("wall_jump")) return "Wall jump";
+    if (has("slide") && !has("trick_jump")) return "Slide";
+    return "Trick jump";
+  }
+  if (has("air_rocket")) return "Air rocket";
+  if (has("blade")) return "Blade frag";
+  if (has("rocket_jump")) return "Rocket jump frag";
+  if (has("airborne")) return "Mid-air frag";
+  if (has("long_range")) return "Long shot";
+  if (has("low_hp")) return "Clutch frag";
+  if (has("revenge")) return "Revenge";
+  if (has("first_blood")) return "First blood";
+  const weapon = h.weaponId ? WEAPON_NAMES[h.weaponId] : undefined;
+  return weapon ? `${weapon} frag` : "Frag";
 }
 
 export interface ReelInfo {
@@ -110,6 +121,9 @@ export interface ReelInfo {
 
 /** How long a frag counter stays on the picture. */
 const STAMP_MS = 900;
+/** A scene's tag comes up this far into the scene, once its cut has landed, and stays this long. */
+const TAG_DELAY_MS = 250;
+const TAG_MS = 3200;
 /** The light flash at the middle of a speed-line cut. */
 const WIPE_FLASH_PEAK = 0.3;
 
@@ -187,6 +201,10 @@ export class CinematicDemoPlayer {
   private frozeThisShot = false;
   /** When each of the shot's frag counters came up, in shot time. */
   private readonly stampShownAt = new Map<number, number>();
+  /** Real time the current scene has played, freezes left out, for its tag. */
+  private scenePlayedMs = 0;
+  /** The scene the last shot belonged to: a new one starts its tag again. */
+  private tagScene = -1;
   /** Where the fly-by's victim was last seen in this shot: they leave the recording when they die. */
   private lastVictimPos: Vec3 | null = null;
   /** Whose eyes the chase camera is behind in this segment. */
@@ -353,6 +371,7 @@ export class CinematicDemoPlayer {
 
     // ── Speed: the plan at the playhead, its ramps and all ────────
     this.shotPlayedMs += deltaMs;
+    this.scenePlayedMs += deltaMs;
     this.speed = plannedSpeedAt(segment, playheadTick);
     this.demoViewer.setSpeed(this.speed);
 
@@ -413,6 +432,8 @@ export class CinematicDemoPlayer {
     this.currentSegmentIndex = clamped;
     this.titleHoldMs = 0;
     this.reelClockMs = this._shotStartMs(clamped);
+    // A jump shows the scene's tag again
+    this.tagScene = -1;
     this._applySegment(this.reel.segments[clamped]);
     if (this.state === "paused" || this.state === "ended") this._setState("playing");
   }
@@ -437,7 +458,7 @@ export class CinematicDemoPlayer {
   getSummary(): ReelSummary | null {
     const reel = this.reel;
     if (!reel || !this.analysis) return null;
-    return reelSummary(reel, this.analysis, (segment) => shotCard(segment, reel.totalScenes).title);
+    return reelSummary(reel, this.analysis, (segment) => trickName(segment.highlight));
   }
 
   private _holdForTitle(): void {
@@ -575,6 +596,7 @@ export class CinematicDemoPlayer {
     }
 
     this.currentSegmentIndex = 0;
+    this.tagScene = -1;
     this._applySegment(this.reel.segments[0]);
     this._setState("playing");
     this._holdForTitle();
@@ -633,7 +655,7 @@ export class CinematicDemoPlayer {
    * jumps ahead, the freeze frame's panel and caption, and a frag counter.
    */
   getEffects(): ReelEffects {
-    const effects: ReelEffects = { wipe: null, freeze: null, stamp: null };
+    const effects: ReelEffects = { wipe: null, freeze: null, stamp: null, tag: null };
     const segments = this.reel?.segments ?? [];
     const segment = segments[this.currentSegmentIndex];
     if (!segment || this.state === "ended" || this.titleHoldMs > 0) return effects;
@@ -670,12 +692,20 @@ export class CinematicDemoPlayer {
       if (ageMs < STAMP_MS && (!effects.stamp || ageMs < effects.stamp.ageMs))
         effects.stamp = { text: stamp.text, ageMs, totalMs: STAMP_MS };
     }
+    // The scene's tag, while it is new; a freeze frame has its own caption
+    const tagAgeMs = this.scenePlayedMs - TAG_DELAY_MS;
+    if (!effects.freeze && tagAgeMs >= 0 && tagAgeMs < TAG_MS)
+      effects.tag = { ...sceneTag(segment.highlight), ageMs: tagAgeMs, totalMs: TAG_MS };
     return effects;
   }
 
   private _applySegment(segment: CinematicSegment): void {
     this.beforeSegmentCb?.(segment);
     this.shotPlayedMs = 0;
+    if (segment.scene !== this.tagScene) {
+      this.tagScene = segment.scene;
+      this.scenePlayedMs = 0;
+    }
     this.flybyPos = null;
     this.flybyLook = null;
     this.freezeLeftMs = 0;

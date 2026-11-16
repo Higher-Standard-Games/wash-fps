@@ -149,7 +149,7 @@ function makeMockCameraSystem(freeCamera = makeMockFreeCamera()) {
 // ── Import SUT after mocks ────────────────────────────────────────────────────
 // Vitest hoists vi.mock() calls before imports, so this import sees the mocks.
 
-import { CinematicDemoPlayer, type CinematicPlayerState } from "../CinematicDemoPlayer";
+import { CinematicDemoPlayer, type CinematicPlayerState, sceneTag } from "../CinematicDemoPlayer";
 import { assertReelMovieFrame, collectReelMovieSchedule } from "../video/ReelMovieSchedule";
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -551,6 +551,29 @@ describe("CinematicDemoPlayer", () => {
     expect(player.getEffects().wipe?.progress).toBeCloseTo(0.25, 1);
   });
 
+  it("tags a scene once as it starts, across its shots, with whose play it is and what it was", async () => {
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel;
+    for (const segment of reel.segments) segment.freeze = undefined;
+    const [first, second] = reel.segments;
+    expect(second.scene).toBe(first.scene);
+    player.skipToSegment(0);
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: first.startTick });
+    player.update(100);
+    // Not over the cut: it comes up once the scene has landed
+    expect(player.getEffects().tag).toBeNull();
+    player.update(200);
+    expect(player.getEffects().tag).toMatchObject({ who: "Alice", what: "Frag", ageMs: 50 });
+    // The scene's next shot keeps the same tag going rather than starting it again
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: first.endTick });
+    player.update(16);
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: second.startTick });
+    player.update(100);
+    expect(player.getEffects().tag?.ageMs).toBe(150);
+    player.update(4000);
+    expect(player.getEffects().tag).toBeNull();
+  });
+
   it("cuts a shot on its beat by the reel's clock, before its last tick", async () => {
     await player.loadAndPlay(new Uint8Array(8), 2);
     const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel;
@@ -774,5 +797,31 @@ describe("CinematicDemoPlayer", () => {
     player.update(16);
     player.stop();
     expect(flyCam.fov).toBe(1.0);
+  });
+});
+
+describe("sceneTag", () => {
+  const frag = {
+    startTick: 0,
+    peakTick: 10,
+    endTick: 20,
+    score: 10,
+    type: "frag" as const,
+    primaryPlayer: "player_1",
+    primaryPlayerName: "Alice",
+    tags: [] as import("../../../../shared/demo/DemoAnalyzer").HighlightTag[],
+  };
+
+  it("names the player and the one play that stands out", () => {
+    expect(sceneTag({ ...frag, tags: ["air_rocket", "long_range"] })).toEqual({ who: "Alice", what: "Air rocket" });
+    expect(sceneTag({ ...frag, tags: ["blade"] }).what).toBe("Blade frag");
+    expect(sceneTag({ ...frag, type: "multi_kill", killCount: 3 }).what).toBe("Triple kill");
+    expect(sceneTag({ ...frag, type: "frag_sequence", killCount: 4 }).what).toBe("4-frag run");
+    expect(sceneTag({ ...frag, type: "movement", tags: ["wall_jump", "height_gain"] }).what).toBe("Wall climb");
+  });
+
+  it("falls back on the weapon, then on a plain frag", () => {
+    expect(sceneTag({ ...frag, weaponId: "electrobolt" }).what).toBe("Electrobolt frag");
+    expect(sceneTag({ ...frag, weaponId: "explosion" }).what).toBe("Frag");
   });
 });

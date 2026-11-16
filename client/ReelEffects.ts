@@ -1,7 +1,8 @@
 /**
  * The highlight reel's comic effects, drawn on a 2D canvas over the picture:
  * speed lines across a cut that jumps ahead, the freeze frame's panel border,
- * halftone and caption burst, and the frag counter. The demo viewer draws
+ * halftone and caption burst, the frag counter, and the tag naming each
+ * scene's player and play in the lower left. The demo viewer draws
  * them on a canvas over the game and the video export onto each movie frame,
  * with the same code, so both show the same thing.
  *
@@ -14,9 +15,10 @@ export interface ReelEffects {
   wipe: { progress: number; angle: number; seed: number } | null;
   freeze: { elapsedMs: number; totalMs: number; caption: string; seed: number } | null;
   stamp: { text: string; ageMs: number; totalMs: number } | null;
+  tag: { who: string; what: string; ageMs: number; totalMs: number } | null;
 }
 
-export const NO_REEL_EFFECTS: ReelEffects = { wipe: null, freeze: null, stamp: null };
+export const NO_REEL_EFFECTS: ReelEffects = { wipe: null, freeze: null, stamp: null, tag: null };
 
 /** The comic's colours: warm paper, ink, and the game's gold. */
 const PAPER = "hsl(42, 100%, 97%)";
@@ -29,9 +31,12 @@ const PANEL_IN_MS = 140;
 const PANEL_OUT_MS = 220;
 /** The caption burst's pop: overshoot, then settle. */
 const BURST_POP_MS = 240;
+/** The scene tag slides in this fast, and out over this long at its end. */
+const TAG_IN_MS = 260;
+const TAG_OUT_MS = 260;
 
 export function hasReelEffects(effects: ReelEffects): boolean {
-  return effects.wipe !== null || effects.freeze !== null || effects.stamp !== null;
+  return effects.wipe !== null || effects.freeze !== null || effects.stamp !== null || effects.tag !== null;
 }
 
 /** Draw `effects` over a `width`×`height` picture. The context is left as it was. */
@@ -44,6 +49,7 @@ export function drawReelEffects(
   const unit = height / 1080;
   context.save();
   if (effects.freeze) drawFreeze(context, effects.freeze, width, height, unit);
+  if (effects.tag) drawTag(context, effects.tag, width, height, unit);
   if (effects.stamp) drawStamp(context, effects.stamp, width, height, unit);
   if (effects.wipe) drawWipe(context, effects.wipe, width, height, unit);
   context.restore();
@@ -183,6 +189,112 @@ function drawStamp(
   context.restore();
 }
 
+// ── Scene tag ─────────────────────────────────────────────────────────────────
+
+/**
+ * Who and what, as a comic caption in the lower left: the play in ink on a
+ * gold box, the player's name on a paper box pinned over its corner, both
+ * with a hard ink shadow. It slides in from the left and drops away at its end.
+ */
+function drawTag(
+  context: CanvasRenderingContext2D,
+  tag: NonNullable<ReelEffects["tag"]>,
+  width: number,
+  height: number,
+  unit: number,
+): void {
+  const t = tag.ageMs;
+  const enter = Math.max(0, Math.min(1, t / TAG_IN_MS));
+  const leave = Math.max(0, Math.min(1, (tag.totalMs - t) / TAG_OUT_MS));
+  if (enter <= 0 || leave <= 0) return;
+  const room = width * 0.42;
+
+  context.save();
+  const left = 64 * unit;
+  const bottom = height - 150 * unit;
+  const slide = (1 - easeOutBack(enter)) * -(room + 120 * unit) + (1 - leave) * 40 * unit;
+  context.globalAlpha = Math.min(1, leave * 1.5);
+  context.translate(left + slide, bottom + (1 - leave) * 30 * unit);
+  context.rotate(-0.045);
+
+  // The play, on gold
+  const what = fitText(context, tag.what.toUpperCase(), 46 * unit, room);
+  const padX = 26 * unit;
+  const whatW = what.width + padX * 2;
+  const whatH = what.size + 44 * unit;
+  captionBox(context, 0, -whatH, whatW, whatH, GOLD, unit);
+  context.save();
+  // A little below the middle, clear of the name box over the top edge
+  context.transform(1, 0, -0.18, 1, padX + what.size * 0.1, -whatH / 2 + 5 * unit);
+  context.font = what.font;
+  context.textAlign = "left";
+  context.textBaseline = "middle";
+  context.fillStyle = INK;
+  context.fillText(what.text, 0, what.size * 0.04);
+  context.restore();
+
+  // The player, on paper, pinned over its top-left corner a beat later
+  const drop = Math.max(0, Math.min(1, (t - TAG_IN_MS * 0.4) / TAG_IN_MS));
+  if (drop > 0) {
+    const who = fitText(context, tag.who, 28 * unit, room * 0.8);
+    const whoW = who.width + 36 * unit;
+    const whoH = who.size + 22 * unit;
+    const x = -14 * unit;
+    const y = -whatH - whoH + 6 * unit - (1 - easeOutBack(drop)) * 24 * unit;
+    context.save();
+    context.globalAlpha *= drop;
+    context.translate(x, y);
+    context.rotate(0.03);
+    captionBox(context, 0, 0, whoW, whoH, PAPER, unit);
+    context.font = who.font;
+    context.textAlign = "left";
+    context.textBaseline = "middle";
+    context.fillStyle = INK;
+    context.fillText(who.text, 18 * unit, whoH / 2 + who.size * 0.04);
+    context.restore();
+  }
+  context.restore();
+}
+
+/** A comic caption box: a hard ink shadow, then the fill with an ink outline. */
+function captionBox(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fill: string,
+  unit: number,
+): void {
+  const shadow = 8 * unit;
+  context.fillStyle = INK;
+  context.fillRect(x + shadow, y + shadow, w, h);
+  context.fillStyle = fill;
+  context.fillRect(x, y, w, h);
+  context.lineWidth = Math.max(2, 5 * unit);
+  context.lineJoin = "miter";
+  context.strokeStyle = INK;
+  context.strokeRect(x, y, w, h);
+}
+
+/** `text` in the caption font at `size`, smaller if it is wider than `room`. */
+function fitText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  size: number,
+  room: number,
+): { text: string; size: number; font: string; width: number } {
+  let font = `700 ${size}px ${CAPTION_FONT}`;
+  context.font = font;
+  let width = context.measureText(text).width;
+  if (width > room) {
+    size *= room / width;
+    font = `700 ${size}px ${CAPTION_FONT}`;
+    width = room;
+  }
+  return { text, size, font, width };
+}
+
 // ── Shared shapes ─────────────────────────────────────────────────────────────
 
 /** A jagged comic burst in gold with an ink outline, with `text` across it. */
@@ -248,6 +360,13 @@ function popScale(t: number): number {
   if (t >= 1) return 1;
   // Out past full size, then back
   return t < 0.6 ? (t / 0.6) * 1.18 : 1.18 - ((t - 0.6) / 0.4) * 0.18;
+}
+
+/** Eases past 1 and back, for a slide that lands with a little kick. */
+function easeOutBack(t: number): number {
+  const k = 1.6;
+  const u = t - 1;
+  return 1 + (k + 1) * u * u * u + k * u * u;
 }
 
 function easeOut(t: number): number {
