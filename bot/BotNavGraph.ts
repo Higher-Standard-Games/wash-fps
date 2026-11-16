@@ -146,6 +146,8 @@ export function navEdgeKey(from: number, to: number, type: NavEdgeType): string 
 // ── Constants ───────────────────────────────────────────────────────
 
 /** Max distance between nodes to test for edges */
+/** Positions findNearestNode remembers before it starts over: far more than a map has items and marks. */
+const NEAREST_LOOKUPS_KEPT = 4096;
 const MAX_EDGE_DISTANCE = 1500;
 
 /** Max height diff for walk edges */
@@ -569,6 +571,7 @@ export class BotNavGraph {
     }
     this._buildAdjacency();
     this._distanceMatrix = null;
+    this._forgetLookups();
     return added;
   }
 
@@ -745,6 +748,10 @@ export class BotNavGraph {
    * Find the nearest NavNode to a world position.
    */
   findNearestNode(pos: Vec3): NavNode | null {
+    const key = `${pos.x},${pos.y},${pos.z}`;
+    const known = this._nearestByPosition.get(key);
+    if (known !== undefined) return known;
+    if (this._nearestByPosition.size >= NEAREST_LOOKUPS_KEPT) this._nearestByPosition.clear();
     let best: NavNode | null = null;
     let bestDist = Infinity;
 
@@ -756,6 +763,7 @@ export class BotNavGraph {
       }
     }
 
+    this._nearestByPosition.set(key, best);
     return best;
   }
 
@@ -769,6 +777,8 @@ export class BotNavGraph {
       STANDS_ON_SURFACE.has(node.type) ? walkOrigin(node) : node.position;
     const score = (origin: Vec3) => Math.hypot(pos.x - origin.x, pos.z - origin.z) + 2 * Math.abs(pos.y - origin.y);
     if (!canWalkTo) {
+      const last = this._lastStanding;
+      if (last && last.x === pos.x && last.y === pos.y && last.z === pos.z) return last.node;
       let best: NavNode | null = null;
       let bestScore = Number.POSITIVE_INFINITY;
       for (const node of this._nodes) {
@@ -778,6 +788,7 @@ export class BotNavGraph {
           best = node;
         }
       }
+      this._lastStanding = { x: pos.x, y: pos.y, z: pos.z, node: best };
       return best;
     }
     const scored = this._nodes.map((node) => {
@@ -1138,6 +1149,7 @@ export class BotNavGraph {
     }
     // Any structural change invalidates cached distances.
     this._distanceMatrix = null;
+    this._forgetLookups();
   }
 
   // ── All-pairs travel cost ───────────────────────────────────────
@@ -1157,6 +1169,22 @@ export class BotNavGraph {
    * invalidate.
    */
   private _distanceMatrix: Float64Array[] | null = null;
+  /**
+   * findNearestNode by exact position. Item and objective positions are asked
+   * for again with every decision, and the answer only changes with the nodes.
+   */
+  private readonly _nearestByPosition = new Map<string, NavNode | null>();
+  /**
+   * The last standing node found without a walk check, by exact position: one
+   * decision asks for its bot's own once per item it weighs.
+   */
+  private _lastStanding: { x: number; y: number; z: number; node: NavNode | null } | null = null;
+
+  /** Drop the lookups above: the nodes changed. */
+  private _forgetLookups(): void {
+    this._nearestByPosition.clear();
+    this._lastStanding = null;
+  }
 
   private _ensureDistanceMatrix(): Float64Array[] {
     if (this._distanceMatrix) return this._distanceMatrix;
