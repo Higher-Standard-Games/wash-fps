@@ -50,7 +50,7 @@ export class CreditsDialog {
     const header = el("header", "lobby-guide__header");
     const title = el("h1", "", "Credits & copyrights");
     title.id = "lobby-credits-title";
-    header.append(el("span", "lobby-guide__eyebrow", "WASHOI / CREDITS"), title);
+    header.append(title);
     const content = renderMarkdown(source);
     // The file's own "# Credits" title is the dialog's header here.
     if (content.firstElementChild?.tagName === "H1") content.firstElementChild.remove();

@@ -26,7 +26,6 @@ const MATCH_MIN_MS = 10_000;
 
 document.body.innerHTML = `<div class="video-export-shell lobby-guide"><main class="video-export-page lobby-guide__card">
   <header class="lobby-guide__header">
-    <span class="lobby-guide__eyebrow">YOUR MATCH. YOUR HIGHLIGHTS.</span>
     <h1>Export highlights</h1>
     <p class="source">Choose a recording</p>
   </header>

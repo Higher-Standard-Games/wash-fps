@@ -23,9 +23,6 @@ export function showMatchConnectionFailure(message: string, onBack?: () => void)
   root.setAttribute("aria-describedby", "match-connection-failure-message");
   const card = document.createElement("div");
   card.className = "match-failure__card";
-  const eyebrow = document.createElement("div");
-  eyebrow.className = "match-failure__eyebrow";
-  eyebrow.textContent = "Match";
   const title = document.createElement("h2");
   title.id = "match-connection-failure-title";
   title.className = "match-failure__title";
@@ -46,7 +43,7 @@ export function showMatchConnectionFailure(message: string, onBack?: () => void)
     root.remove();
     onBack();
   });
-  card.append(eyebrow, title, text, back);
+  card.append(title, text, back);
   root.append(card);
   root.addEventListener("keydown", (event) => {
     if (event.key === "Tab") {

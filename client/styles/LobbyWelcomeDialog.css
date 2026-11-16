@@ -96,15 +96,10 @@
 .lobby-guide__header {
   flex: 0 0 auto;
 }
-.lobby-guide__eyebrow {
-  font: 800 14px var(--display);
-  letter-spacing: 0.17em;
-  opacity: 0.7;
-}
 .lobby-guide__header h1 {
   font: 900 clamp(26px, 3.5vw, 48px) / 1.1 var(--display);
   letter-spacing: -0.04em;
-  margin: 10px 0 20px;
+  margin: 0 0 20px;
 }
 /* The steps: one chevron strip, each step pointing into the next */
 .lobby-guide__tabs {

@@ -184,7 +184,7 @@ describe("one board", () => {
     const board = view();
     await board.refresh();
     expect(board.root.querySelector("[data-scope], .lb-scopes")).toBeNull();
-    expect(board.root.querySelector(".lobby__kicker")?.textContent).toBe("Leaderboard · DUEL");
+    expect(board.root.querySelector(".lobby__mode-key.is-on")?.textContent).toBe("DUEL");
     expect(asked.every((query) => query.scope === undefined)).toBe(true);
   });
 });

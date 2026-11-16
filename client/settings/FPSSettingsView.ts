@@ -95,7 +95,7 @@ export class FPSSettingsView {
     const head = el("header", "fps-set-head");
     const heading = el("div");
     this.title = el("h1", "lobby__title fps-set-head__title");
-    heading.append(el("div", "lobby__kicker", "Settings"), this.title);
+    heading.append(this.title);
     const side = el("div", "fps-set-head__side");
     this.resetPageKey = createRaisedKey({ label: "Reset page", variants: ["sm", "cream", "inline", "reset"] });
     this.resetAllKey = createRaisedKey({ label: "Reset all", variants: ["sm", "cream", "inline", "reset"] });
