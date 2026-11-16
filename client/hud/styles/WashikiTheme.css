@@ -2381,6 +2381,16 @@ html[data-cl-hud="0"]
   letter-spacing: 0.04em;
 }
 
+/* The mission's line of story, between the goal and the rules */
+.fps-campaign-briefing__line {
+  margin: calc(8px * var(--ui-scale, 1)) 0 0;
+  font-family: var(--w-font-body);
+  font-size: calc(17px * var(--ui-scale, 1));
+  font-weight: 600;
+  font-style: italic;
+  line-height: 1.3;
+}
+
 .fps-campaign-briefing__points {
   margin: calc(12px * var(--ui-scale, 1)) 0 0;
   padding: 0 0 0 calc(22px * var(--ui-scale, 1));

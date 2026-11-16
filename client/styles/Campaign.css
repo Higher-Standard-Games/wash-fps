@@ -149,16 +149,60 @@
   }
 }
 
-/* The heading sits on the banner's fading lower edge, which also leaves the list more room */
+/*
+ * The heading sits on the banner's fading lower edge, which also leaves the
+ * list more room: the title with the count beside it, and the campaign's
+ * opening under both
+ */
 .campaign__head {
   position: relative;
   z-index: 1;
-  display: flex;
+  display: grid;
   flex: 0 0 auto;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 24px;
+  grid-template-areas:
+    "title count"
+    "intro intro";
+  grid-template-columns: auto auto;
+  justify-content: start;
+  align-items: center;
+  gap: 18px 34px;
   margin-top: calc(var(--banner-height) * -0.36);
+}
+
+.campaign__title {
+  grid-area: title;
+}
+
+/* The opening in a cream narration box with typewriter words, like the comic cards' captions */
+.campaign__ingress {
+  grid-area: intro;
+  justify-self: start;
+  margin: 0;
+  max-width: 72ch;
+  padding: 12px 18px 13px;
+  border: 3px solid hsl(250 50% 5%);
+  background: hsl(44 55% 90%);
+  box-shadow: 6px 7px 0 hsl(250 50% 3%);
+  font:
+    700 clamp(14px, 0.9vw, 17px) / 1.4 "Courier New",
+    ui-monospace,
+    monospace;
+  color: hsl(250 40% 10%);
+  transform: rotate(-0.6deg);
+}
+
+/* A short screen gets the one-line version, leaving the operations room */
+.campaign__ingress--short {
+  display: none;
+}
+
+@media (max-height: 1000px) {
+  .campaign__ingress {
+    display: none;
+  }
+  .campaign__ingress--short {
+    display: block;
+  }
 }
 
 /* A stamped yellow plate, the way the game's banners are (WARMUP, FIGHT): the
@@ -185,6 +229,31 @@
   transform: skewX(-6deg);
 }
 
+/* The dark plate: the same stamp in a purple a shade off the page's, for the
+   operations' titles and the count */
+.campaign-plate--dark {
+  color: var(--cream);
+  text-shadow: 0.05em 0.06em 0 hsl(322 95% 40% / 0.6);
+}
+
+.campaign-plate--dark::before {
+  background:
+    repeating-linear-gradient(180deg, hsl(276 70% 70% / 0.07) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(278 56% 27%), hsl(270 54% 20%) 48%, hsl(262 52% 15%));
+}
+
+/* The deep plate: the page heading's stamp in deep purple, for the finale */
+.campaign-plate--deep {
+  color: var(--campaign-gold);
+  text-shadow: 0.05em 0.06em 0 hsl(322 95% 40% / 0.7);
+}
+
+.campaign-plate--deep::before {
+  background:
+    repeating-linear-gradient(180deg, hsl(286 80% 70% / 0.08) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(284 72% 30%), hsl(274 74% 20%) 45%, hsl(264 78% 12%));
+}
+
 /* Its printed shadow: the same plate in ink, set off behind it (a clip-path would cut a drop-shadow) */
 .campaign-plate::after {
   content: "";
@@ -197,19 +266,53 @@
 }
 
 .campaign__count {
-  margin: 0;
-  text-shadow: 0 2px 8px hsl(250 50% 3%);
-  font: 700 15px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.2em;
+  grid-area: count;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 10px 0 0;
+  padding: 12px 24px 14px 20px;
+  font: 700 13px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  font-style: normal;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.7);
 }
 
 .campaign__count strong {
-  margin-right: 8px;
-  font: 900 30px / 1 var(--w-font-display, "Orbitron", monospace);
+  font: 900 italic 28px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0;
   color: var(--campaign-cyan);
+  text-shadow: 0 0 14px hsl(182 95% 52% / 0.45);
+}
+
+.campaign__count-label {
+  color: hsl(45 100% 95% / 0.75);
+  text-shadow: none;
+}
+
+/* A segment per operation: cyan once cleared, gold for the next */
+.campaign__pips {
+  display: flex;
+  gap: 5px;
+  margin-left: 4px;
+}
+
+.campaign__pip {
+  width: 15px;
+  height: 14px;
+  background: hsl(45 100% 95% / 0.14);
+  transform: skewX(-24deg);
+}
+
+.campaign__pip--cleared {
+  background: var(--campaign-cyan);
+  box-shadow: 0 0 8px hsl(182 95% 52% / 0.55);
+}
+
+.campaign__pip--current,
+.campaign__pip--open {
+  background: var(--campaign-gold);
+  box-shadow: 0 0 8px hsl(46 100% 57% / 0.6);
 }
 
 .campaign__notice {
@@ -353,6 +456,27 @@
     0 0 34px hsla(46, 100%, 57%, 0.35);
 }
 
+/* A card that reads its story when clicked */
+.campaign-card__art--readable {
+  cursor: zoom-in;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.campaign-card__art--readable:is(:hover, :focus-visible) {
+  outline: none;
+  transform: translateY(-3px);
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.55),
+    0 0 30px hsl(182 95% 52% / 0.35);
+}
+
+.campaign-finale__art:focus-visible {
+  outline: 3px solid var(--campaign-cyan);
+  outline-offset: 6px;
+}
+
 .campaign-card__img {
   display: block;
   width: 100%;
@@ -394,12 +518,12 @@
 }
 
 .campaign-card__name {
-  margin: 0;
-  font: 900 clamp(24px, 2.4vw, 44px) / 1 var(--w-font-display, "Orbitron", monospace);
+  align-self: flex-start;
+  margin: 0 0 4px;
+  font: 900 clamp(22px, 2vw, 38px) / 1 var(--w-font-display, "Orbitron", monospace);
   font-style: italic;
   text-transform: uppercase;
   color: var(--cream);
-  text-shadow: 3px 4px 0 hsl(250 50% 3%);
 }
 
 .campaign-card--locked .campaign-card__name {
@@ -413,6 +537,12 @@
   max-width: 46ch;
   font: 600 clamp(15px, 1.05vw, 19px) / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
   color: hsla(45, 100%, 95%, 0.8);
+}
+
+/* The story so far is longer than a locked card's line */
+.campaign-card__intro {
+  max-width: 54ch;
+  font-size: clamp(15px, 0.95vw, 18px);
 }
 
 .campaign-card--locked .campaign-card__hook {
@@ -468,6 +598,108 @@
   color: var(--cream);
 }
 
+/* ── The finale: under the last operation once every one is cleared ── */
+
+.campaign-finale--complete {
+  grid-template-areas:
+    "node head head"
+    "node art art";
+  grid-template-rows: auto auto;
+  gap: 22px 26px;
+  padding: 30px 0 60px;
+}
+
+.campaign-finale--complete .campaign-card__node {
+  grid-area: node;
+  align-self: center;
+}
+
+/* The track runs into the finale's node, a star */
+.campaign-finale--complete::before {
+  height: 50%;
+}
+
+.campaign-finale--complete .campaign-finale__node {
+  width: calc(var(--node) + 20px);
+  height: calc(var(--node) + 20px);
+  border-color: var(--campaign-gold);
+  font-size: 22px;
+  color: var(--ink);
+  background: var(--campaign-gold);
+  box-shadow: 0 0 30px hsl(46 100% 57% / 0.8);
+}
+
+.campaign-finale__title {
+  grid-area: head;
+  justify-self: start;
+  margin: 0;
+  font: 900 clamp(32px, 3.4vw, 64px) / 1 var(--w-font-display, "Orbitron", monospace);
+  font-style: italic;
+  text-transform: uppercase;
+}
+
+/* Aligned with the cards above, half as wide again */
+.campaign-finale__art {
+  grid-area: art;
+  width: min(100%, 1560px);
+  max-width: calc(46% * 1.6);
+  perspective: 2400px;
+  cursor: zoom-in;
+}
+
+/* The comic's own slow turn, as before a match: a photo held in the hand */
+.campaign-finale__drift {
+  position: relative;
+  aspect-ratio: 2752 / 1536;
+  overflow: hidden;
+  border: 4px solid var(--campaign-gold);
+  background: hsl(250 12% 13%);
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.6),
+    0 0 60px hsl(46 100% 57% / 0.3),
+    0 0 120px hsl(300 90% 55% / 0.18);
+  animation: campaign-finale-drift 14s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.campaign-finale__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Light across the card's face as it turns */
+.campaign-finale__sheen {
+  position: absolute;
+  inset: -20% -60%;
+  background: linear-gradient(105deg, transparent 40%, hsl(45 100% 95% / 0.16) 50%, transparent 60%);
+  animation: campaign-finale-sheen 9s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes campaign-finale-drift {
+  from {
+    transform: rotateY(-2.4deg) rotateX(1.4deg) rotate(-0.8deg) scale(1);
+  }
+  50% {
+    transform: rotateY(0.6deg) rotateX(-0.4deg) rotate(0.2deg) scale(1.025);
+  }
+  to {
+    transform: rotateY(2deg) rotateX(-1deg) rotate(0.6deg) scale(1.045) translate(-8px, -5px);
+  }
+}
+
+@keyframes campaign-finale-sheen {
+  0%,
+  55% {
+    translate: -70% 0;
+  }
+  100% {
+    translate: 70% 0;
+  }
+}
+
 /* Narrow screens: the card above its details */
 @media (max-width: 1100px) {
   .campaign-card {
@@ -480,6 +712,14 @@
   }
   .campaign-card__info {
     grid-column: 2;
+  }
+  .campaign-finale--complete {
+    grid-template-areas:
+      "node head"
+      "node art";
+  }
+  .campaign-finale__art {
+    max-width: none;
   }
 }
 

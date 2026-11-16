@@ -1,14 +1,17 @@
 /**
  * The Campaign page: the operations as a list down the page, each with its
- * comic card and a track node showing where it stands (cleared, current or
- * locked), and the way into the next one. Progress comes from the lobby
- * (`campaign:state`); until it answers, the copy this browser kept is shown.
+ * comic card (clicked, it reads panel by panel) and a track node showing where
+ * it stands (cleared, current or locked), and the way into the next one; under
+ * them, the finale. Progress comes from the lobby (`campaign:state`); until it
+ * answers, the copy this browser kept is shown.
  */
 
+import { background } from "../../../../engine/core/AsyncErrors";
 import { createRaisedKey, setRaisedKeyText } from "../../../../engine/ui/components/RaisedKey";
 import type { CampaignClear, CampaignMissionInfo } from "../../../../lobby/types";
+import { CampaignCutscene } from "./CampaignCutscene";
 import type { CampaignState } from "./CampaignSession";
-import { campaignStory } from "./CampaignStory";
+import { type CampaignCard, campaignStory, FINALE_CARD } from "./CampaignStory";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -29,10 +32,20 @@ const GAMETYPE_NAMES: Record<string, string> = {
   survival: "Survival",
 };
 
+/** The campaign's opening, under the page title. */
+const INGRESS =
+  "Welcome to Neo-Kyoto, where walking is for targets, friction is illegal, and megacorporations broadcast street violence for prime-time ad revenue. You're an unranked runner looking to turn lethal slide-speed into cold crypto, starting with a back-alley Cartel tryout. Out-move the gangs, scrap the bots, and claim the arena.";
+
+/** The same in one line, for a screen too short for the whole opening. */
+const INGRESS_SHORT =
+  "From a back-alley Cartel tryout to the top of the broadcast: climb the 8-stage Neo-Kyoto gauntlet, where speed is survival and friction is fatal.";
+
 /** The squad, cut out, to stand on the street in the page's banner. */
 const SQUAD_IMAGE = "/images/campaign/squad.webp";
 
 export type MissionStatus = "cleared" | "current" | "open" | "locked";
+
+const FINALE_TITLE = "Campaign complete!";
 
 /**
  * Where a mission stands: cleared, the one to play next, open (unlocked,
@@ -75,9 +88,14 @@ export class CampaignView {
     this.root.append(this.buildBanner());
 
     const head = el("header", "campaign__head");
-    head.append(el("h1", "lobby__title campaign__title campaign-plate", "Campaign"));
-    this.countEl = el("p", "campaign__count");
-    head.append(this.countEl);
+    this.countEl = el("p", "campaign__count campaign-plate campaign-plate--dark");
+    // The count beside the title; the campaign's opening under both, in a caption box like the cards'
+    head.append(
+      el("h1", "lobby__title campaign__title campaign-plate", "Campaign"),
+      this.countEl,
+      el("p", "campaign__ingress", INGRESS),
+      el("p", "campaign__ingress campaign__ingress--short", INGRESS_SHORT),
+    );
 
     this.list = el("ol", "campaign__list");
     this.list.setAttribute("aria-label", "Operations");
@@ -152,10 +170,30 @@ export class CampaignView {
     return state.missions.filter((m) => state.clears.some((clear) => clear.missionId === m.id)).length;
   }
 
+  /** The count, and a segment for each operation: cyan once cleared, gold for the next. */
+  private renderCount(length: number): void {
+    const pips = el("span", "campaign__pips");
+    pips.setAttribute("aria-hidden", "true");
+    for (let number = 1; number <= length; number++) {
+      pips.append(el("span", `campaign__pip campaign__pip--${missionStatus(number, this.state)}`));
+    }
+    this.countEl.replaceChildren(
+      el("strong", "", `${this.clearedCount()} / ${length}`),
+      el("span", "campaign__count-label", "cleared"),
+      pips,
+    );
+  }
+
+  /** Every operation cleared: the finale shows. */
+  private complete(): boolean {
+    const length = this.state?.length ?? 0;
+    return length > 0 && this.clearedCount() >= length;
+  }
+
   private render(): void {
     const state = this.state;
     const length = state?.length || 8;
-    this.countEl.replaceChildren(el("strong", "", `${this.clearedCount()} / ${length}`), " cleared");
+    this.renderCount(length);
     this.notice.textContent = this.startable ? "" : this.reason;
 
     const rows: HTMLElement[] = [];
@@ -169,6 +207,9 @@ export class CampaignView {
       rows.push(row);
       previous = status;
     }
+    const finale = this.buildFinale();
+    if (previous) finale.dataset.from = previous;
+    rows.push(finale);
     // Keep focus on the same key across a redraw, for keyboard and pad players
     const focused = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.navId : undefined;
     this.list.replaceChildren(...rows);
@@ -182,7 +223,6 @@ export class CampaignView {
     const story = mission ? campaignStory(mission.id) : null;
     const row = el("li", `campaign-card campaign-card--${status}`);
     if (mission) row.dataset.mission = mission.id;
-
     // The track down the left: this mission's node, and the line on to the next
     const node = el("span", "campaign-card__node", status === "cleared" ? "✓" : status === "locked" ? "" : two(number));
     node.setAttribute("aria-hidden", "true");
@@ -199,6 +239,7 @@ export class CampaignView {
       img.loading = "lazy";
       img.decoding = "async";
       art.append(img);
+      if (status !== "locked") this.makeReadable(art, story.card, `Operation ${two(number)}`, story.title);
     }
     if (status === "locked") art.append(el("span", "campaign-card__stamp", "Classified"));
     // An operation whose art is still being drawn shows its number in its place
@@ -214,8 +255,8 @@ export class CampaignView {
       return row;
     }
 
-    info.append(el("h2", "campaign-card__name", story?.title ?? mission.mapTitle));
-    if (story?.hook) info.append(el("p", "campaign-card__hook", story.hook));
+    info.append(el("h2", "campaign-card__name campaign-plate campaign-plate--dark", story?.title ?? mission.mapTitle));
+    if (story?.intro) info.append(el("p", "campaign-card__hook campaign-card__intro", story.intro));
 
     // The one thing worth a bullet: which game mode the operation is
     const mode = el("ul", "campaign-card__brief");
@@ -225,6 +266,13 @@ export class CampaignView {
     const foot = el("div", "campaign-card__foot");
     const clear = this.state?.clears.find((c) => c.missionId === mission.id);
     if (clear) foot.append(this.buildStats(clear));
+    foot.append(this.buildStart(mission, status));
+    info.append(foot);
+    row.append(info);
+    return row;
+  }
+
+  private buildStart(mission: CampaignMissionInfo, status: MissionStatus): HTMLButtonElement {
     const key = createRaisedKey({
       label: status === "cleared" ? "↻ Replay" : "▶ Play",
       variants: status === "cleared" ? ["sm", "cream"] : ["sm"],
@@ -238,9 +286,77 @@ export class CampaignView {
       setRaisedKeyText(key, "Starting…");
       this.options.start(mission);
     });
-    foot.append(key);
-    info.append(foot);
-    row.append(info);
+    return key;
+  }
+
+  /** Clicking `art` (or Enter on it) reads `card` panel by panel, at a size its words can be read. */
+  private makeReadable(art: HTMLElement, card: CampaignCard, label: string, title: string): void {
+    art.classList.add("campaign-card__art--readable");
+    art.tabIndex = 0;
+    art.setAttribute("role", "button");
+    art.setAttribute("aria-label", `Read the story: ${title}`);
+    art.title = "Read the story";
+    art.addEventListener("click", () => this.readCard(card, label, title));
+    art.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      this.readCard(card, label, title);
+    });
+  }
+
+  /** A comic card, panel by panel, without starting anything. */
+  private readCard(card: CampaignCard, label: string, title: string): void {
+    const cutscene: CampaignCutscene = new CampaignCutscene({
+      card,
+      label,
+      title,
+      onPanelsDone: () => cutscene.close(),
+    });
+    background(cutscene.play(), "CampaignView");
+  }
+
+  /**
+   * Under the last operation: the finale. Until every operation is cleared it
+   * is a classified strip, so the ending stays unseen; then its card, larger
+   * than the others and turning slowly the way the comic does before a match,
+   * under a CAMPAIGN COMPLETE plate.
+   */
+  private buildFinale(): HTMLElement {
+    const complete = this.complete();
+    const row = el(
+      "li",
+      `campaign-card campaign-finale${complete ? " campaign-finale--complete" : " campaign-card--locked"}`,
+    );
+    const node = el("span", "campaign-card__node campaign-finale__node", complete ? "★" : "");
+    node.setAttribute("aria-hidden", "true");
+
+    if (!complete) {
+      const art = el("div", "campaign-card__art");
+      art.append(el("span", "campaign-card__stamp", "Classified"));
+      const info = el("div", "campaign-card__info");
+      info.append(
+        el("h2", "campaign-card__name", "Classified"),
+        el("p", "campaign-card__hook", "Clear every operation to see how it ends."),
+      );
+      row.append(node, art, info);
+      return row;
+    }
+
+    const head = el("h2", "campaign-finale__title campaign-plate campaign-plate--deep", FINALE_TITLE);
+    // The card on its slow turn, the size it is shown at
+    const art = el("div", "campaign-finale__art");
+    const drift = el("div", "campaign-finale__drift");
+    const img = el("img", "campaign-finale__img");
+    img.src = FINALE_CARD.thumb;
+    img.srcset = `${FINALE_CARD.thumb} 720w, ${FINALE_CARD.image} ${FINALE_CARD.width}w`;
+    img.sizes = "(min-width: 2200px) 1500px, 64vw";
+    img.alt = FINALE_TITLE;
+    img.loading = "lazy";
+    img.decoding = "async";
+    drift.append(img, el("span", "campaign-finale__sheen"));
+    art.append(drift);
+    this.makeReadable(art, FINALE_CARD, "Finale", FINALE_TITLE);
+    row.append(node, head, art);
     return row;
   }
 
