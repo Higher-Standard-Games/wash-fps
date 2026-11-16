@@ -170,7 +170,10 @@ can differ from the target. Output is 1920×1080 at 60 FPS, SDR H.264 video and
 packaged OST song for the main soundtrack, with game sounds layered over it. **Start from** selects
 the position in the song, as seconds, `m:ss` or `h:mm:ss` (for example `1:23.250`).
 Music plays continuously at normal speed across cuts and slow motion, with a
-short fade in and out. In a highlight reel it stops at the end of the movie or song and does not loop;
+short fade in and out. With a song chosen, each cut between two scenes moves
+onto the nearest beat of the song (up to 0.35 seconds earlier or 0.65 later; a
+scene ending later runs on into its slow orbit). A song without a steady beat
+leaves the cuts where they were. In a highlight reel it stops at the end of the movie or song and does not loop;
 a [full match](#full-match) carries on with the game's songs.
 The start timestamp must be before the song ends.
 Selected music uses a fixed 80% gain; game sounds play underneath at 35% of

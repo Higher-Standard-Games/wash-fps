@@ -47,6 +47,7 @@ import {
   renderMovieFrames,
 } from "./MovieClock";
 import { Mp4Writer, movieBytes } from "./Mp4Writer";
+import { detectBeats } from "./MusicBeats";
 import { assertReelMovieFrame, collectReelMovieSchedule, type ReelMovieFrame } from "./ReelMovieSchedule";
 import { warmShot } from "./ShotPreroll";
 import type { TemporaryVideo } from "./TemporaryVideo";
@@ -57,6 +58,8 @@ let servicesRegistered = false;
 const MATCH_VIDEO_BITRATE = 12_000_000;
 /** The page's body class while a match records: the HUD is drawn into the movie, not over the page. */
 const RECORDING_CLASS = "video-export-recording";
+/** A highlight reel is never longer than this (the movie schedule's limit), so no beats are needed past it. */
+const REEL_MAX_SECONDS = 240;
 
 export interface ExportMovieOptions {
   signal: AbortSignal;
@@ -191,12 +194,19 @@ export async function renderDemoMovie(
     engine.runRenderLoop(() => scene.render());
     await abortable(service.loadRaw(bytes, "video-export-fixture"), preparation.signal);
     const viewer = new DemoViewer();
-    if (options.reelMinutes)
+    if (options.reelMinutes) {
       await abortable(
         service.loadAndPlayCinematic(viewer, cameras, options.reelMinutes, { manual: true }),
         preparation.signal,
       );
-    else
+      // With a song, the cuts between scenes land on its beats. The music
+      // starts with the movie, at the chosen point in the song.
+      if (preparedMusic) {
+        const { buffer, startSeconds } = preparedMusic;
+        const beats = detectBeats(buffer, startSeconds, Math.min(REEL_MAX_SECONDS, buffer.duration - startSeconds));
+        service.activeCinematicPlayer?.alignCutsToBeats(beats.map((beat) => (beat - startSeconds) * 1000));
+      }
+    } else
       await abortable(
         service.loadAndPlayNormal(viewer, { manual: true, gameHud: !!options.match }),
         preparation.signal,

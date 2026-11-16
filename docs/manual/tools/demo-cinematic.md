@@ -35,18 +35,46 @@ card again.
 ## How a reel is made
 
 1. **Analyse.** `DemoAnalyzer` scans every frame of the demo for moments worth keeping and scores each one.
-2. **Build.** `SequenceBuilder` picks the best moments to fit the length you asked for (about 11 seconds a highlight), and films each one as a **scene** of three shots of the same moment (see below).
+2. **Build.** `SequenceBuilder` picks the best moments to fit the length you asked for (about 11 seconds a highlight; a frag sequence counts its own length), and films each one as a **scene** of shots (see below).
 3. **Play.** `CinematicDemoPlayer` drives the normal demo viewer through the shots, rewinding and switching the camera for each one.
 
 ### A scene
 
 Every highlight is cut the same way, so the reel reads like one edited video:
 
-1. **Intro**: a third-person fly-by from 2 seconds before the frag (a rocket jump from its take-off), slowing to 0.35× for the last 0.6 seconds.
-2. **Eyes**: a quick white flash rewinds to the same moment, seen through the killer's eyes (or the victim's, when they saw it coming), with a beat of half speed on the frag. A multi-kill plays its whole run here.
-3. **Ending**: a crossfade into a slow 0.4× orbit round the frag.
+1. **Intro**: a third-person fly-by from 2 seconds before the frag (a rocket jump from its take-off), easing down to 0.35× for the last 0.6 seconds.
+2. **Eyes**: a quick white flash rewinds to the same moment, seen through the killer's eyes, with a beat of half speed on the frag. A multi-kill plays its whole run here, with a counter stamped on each frag. When the victim saw it coming (and the scene before was not already theirs), the eyes are the victim's instead: their shot slows as the frag lands and ends on it.
+3. **Ending**: a crossfade into a slow 0.4× orbit round the frag. After the victim's eyes it cuts straight in at the frag, so the view goes from their eyes to the outside of the hit, never into the killer's eyes. The orbit keeps looking at where the victim died once they have left the recording.
 
-Each scene then ends with a fade to black, a white flash or a crossfade into the next one. The effect is picked from the highlight itself, so the same demo always cuts the same way. The reel always fades in from black and out to black over a full second, so a recording of it starts and ends clean.
+Slow motion eases in and out over about 0.2 seconds of game time (0.4 into the intro's slow-down) rather than switching speed in a step.
+
+### Frag sequences
+
+A **frag sequence** is one player's frags in a row (see [What counts as a highlight](#what-counts-as-a-highlight)). It is filmed as it happened rather than as three replays:
+
+1. A camera **chases the killer** in third person into the first frag.
+2. Each frag is seen **through the killer's eyes** from 1.2 seconds before it to 0.5 after, with a beat of half speed and the **frag counter** (1, 2, 3...) stamped on the picture. Frags close together share one eyes shot.
+3. Between frags the chase picks up again at 1.35× speed, easing back to full speed by the next frag. A wait of more than three seconds is cut short: the reel **jumps ahead through speed lines** to the last 2.5 seconds of the chase.
+4. The scene ends on the usual slow orbit round the last frag.
+
+### Transitions
+
+Each transition means one thing, so a viewer learns to read them:
+
+| Transition | Means |
+|------------|-------|
+| White flash | Rewind: the same moment again, from a player's eyes |
+| Speed lines | Jumping ahead in time: across a long wait in a frag sequence, and into some scenes |
+| Crossfade | The same moment from another angle (the ending orbit) |
+| Fade to black | The scene is over |
+
+Each scene ends with a fade to black, a white flash or a crossfade into the next one, picked from the highlight itself, so the same demo always cuts the same way. About one cut in three between scenes, never two running, comes in on **speed lines** instead: the reel's best frag scenes first, then movement clips. The reel always fades in from black and out to black over a full second, so a recording of it starts and ends clean.
+
+### Freeze frames
+
+The reel's best frag scene, and any play of three or more frags, ends on a **freeze frame**, in one scene of three at most and never more than three a reel: just after the frag, the ending orbit stops for 1.4 seconds as a comic panel, with a paper border, halftone corners and a caption burst (**DOUBLE!**, **TRIPLE!**, **QUAD!**, *n* **FRAGS!**; for a single frag **ROCKET JUMP!**, **AIRSHOT!**, **SNIPED!**, **CLUTCH!**, **REVENGE!** or **FRAG!**).
+
+The speed lines, freeze frames and frag counters are drawn by the same code in the demo viewer and in an exported video, so a video shows what the viewer shows.
 
 ### Movement clips
 
@@ -72,13 +100,14 @@ The analyser works on the recorded frames alone and touches no rendering or netw
 | Type | What it is |
 |------|------------|
 | `frag` | A kill |
-| `multi_kill` | Several kills within 200 ticks (1.6 s) |
+| `multi_kill` | Several kills by one player, all within 3 seconds |
+| `frag_sequence` | Several kills by one player taking longer than 3 seconds: two within 5 seconds of each other, or three within 10 seconds, and on for as long as the run keeps up. The killer dying ends it. |
 | `airborne_frag` | A kill made with the killer's feet at least 32 units above the ground (a hop off a step does not count) |
 | `streak_kill` | A kill that extends a streak |
 | `first_blood` | The match's first kill |
 | `movement` | A trick jump: wall jumps, slides or a chain of hops, faster than sprinting |
 
-Each moment carries 3 seconds of lead-in and 2 seconds of follow-through.
+Each moment carries 3 seconds of lead-in and 2 seconds of follow-through; a multi-kill or frag sequence runs from before its first frag to after its last.
 
 ### Scoring
 
@@ -92,7 +121,7 @@ A kill starts at 10 points. Tags then multiply the score:
 | `on_fire` | 1.2 | `long_range` (over 1500 u) | 1.2 |
 | `high_speed` (over 600 u/s) | 1.2 | `close_range` (under 150 u), `revenge` | 1.1 |
 
-A rocket jump replaces the airborne bonus rather than stacking with it, and a multi-kill adds 50% per extra kill. Where two frags overlap in time, only the higher-scoring one is kept.
+A rocket jump replaces the airborne bonus rather than stacking with it, and a multi-kill or frag sequence adds 50% per extra kill. Where two frags overlap in time, only the higher-scoring one is kept.
 
 ## Cameras and speed
 
@@ -102,8 +131,8 @@ A rocket jump replaces the airborne bonus rather than stacking with it, and a mu
 | `dramatic_zoom` | Intro, for a long-range frag | Wide-to-tight dolly onto the victim |
 | `orbit_kill` | Intro, otherwise | Starts over the killer's shoulder and swings round the action, about 90° a second |
 | `chase_hero` | Eyes | The killer's view |
-| `victim_pov` | Eyes, when the victim faced the killer (never twice running) | The victim's view, then the killer's once they die |
-| `trick_follow` | Movement clip | Rides behind and beside the player along their recorded route |
+| `victim_pov` | Eyes, when the victim of a single frag faced the killer (never twice running) | The victim's view, up to the frag |
+| `trick_follow` | Movement clip; a frag sequence's chase | Rides behind and beside the player along their recorded route, from behind where they look while they stand about |
 | `replay_orbit` | Ending | Orbits both players when they're close, the victim when the shot crossed the map |
 
 A zoom's field of view stays with its own shot; the next shot, and the free camera after the reel, get theirs back.
@@ -111,4 +140,4 @@ A zoom's field of view stays with its own shot; the next shot, and the free came
 ## Tips
 
 - **Reel too short or empty?** Run `demoplay analyze` first. A demo of two idle players can have few highlights, and a longer reel cannot invent more.
-- **Exporting.** There is no built-in video export; record the reel with a screen recorder. Press **H** first for the clean view: the recording then starts and ends on black, with the title and end cards and no pointer.
+- **Exporting.** **Export video** (or `videoexport`) renders the reel to an MP4; see [Video export](../multiplayer/demos.md#video-export). With a song chosen, the cuts between scenes land on its beats. To capture the viewer with a screen recorder instead, press **H** first for the clean view: the recording then starts and ends on black, with the title and end cards and no pointer.

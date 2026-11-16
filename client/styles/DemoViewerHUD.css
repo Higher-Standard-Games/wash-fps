@@ -323,6 +323,16 @@
   background: hsl(42, 100%, 97%);
 }
 
+/* A reel's comic effects: part of the picture, under the veil */
+.dvh-effects {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 9989;
+  pointer-events: none;
+}
+
 /* --- Exit: the FPS counter's gold plate, mirrored into the top-left corner --- */
 
 .dvh-exit {

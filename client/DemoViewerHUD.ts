@@ -14,6 +14,7 @@ import { createRaisedKey, injectRaisedKeyStyles, setRaisedKeyText } from "../../
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import type { DemoViewerInfo } from "./DemoViewer";
 import type { EndCard, ReelTitle } from "./ReelCards";
+import { drawReelEffects, hasReelEffects, type ReelEffects } from "./ReelEffects";
 import demoViewerHudCss from "./styles/DemoViewerHUD.css?raw";
 
 /** How long the controls stay up after the mouse or a key last moved. */
@@ -109,6 +110,9 @@ export class DemoViewerHUD {
   private card: HTMLDivElement | null = null;
   /** A reel's transitions over the picture; part of the picture, so H leaves it. */
   private veil: HTMLDivElement | null = null;
+  /** A reel's comic effects over the picture, under the veil: speed lines, freeze frames, frag counters. */
+  private effects: HTMLCanvasElement | null = null;
+  private effectsShown = false;
   /** A finished reel's way on: watch it again, or back to the demos. */
   private endKeys: HTMLDivElement | null = null;
   /** How the match went, over the end keys. */
@@ -229,6 +233,9 @@ export class DemoViewerHUD {
 
     this.veil = el("div", "dvh-veil");
     this.veil.id = "demo-viewer-veil";
+    this.effects = document.createElement("canvas");
+    this.effects.className = "dvh-effects";
+    this.effects.setAttribute("aria-hidden", "true");
 
     this.titleCard = el("div", "dvh-title");
     this.titleCard.id = "demo-viewer-title";
@@ -250,13 +257,21 @@ export class DemoViewerHUD {
     if (this.options.movie) {
       this.titleCard.classList.add("is-over-play");
       this.endKeys.classList.add("is-movie");
-      document.body.append(this.veil, this.titleCard, this.endKeys);
+      document.body.append(this.effects, this.veil, this.titleCard, this.endKeys);
       return;
     }
     this.endKeys.append(keys);
     this.setGameHudVisible(true);
     this.setupEvents();
-    document.body.append(this.veil, this.titleCard, this.container, this.exitPlate, this.card, this.endKeys);
+    document.body.append(
+      this.effects,
+      this.veil,
+      this.titleCard,
+      this.container,
+      this.exitPlate,
+      this.card,
+      this.endKeys,
+    );
   }
 
   private setupEvents(): void {
@@ -448,6 +463,26 @@ export class DemoViewerHUD {
     this.veil.classList.toggle("is-white", color === "white");
   }
 
+  /** Draw a reel's comic effects over the picture; none clears them. */
+  setEffects(effects: ReelEffects | null): void {
+    const canvas = this.effects;
+    if (!canvas) return;
+    const shown = effects !== null && hasReelEffects(effects);
+    if (!shown && !this.effectsShown) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    // The canvas follows the window, at up to 1.5 device pixels per pixel
+    const scale = Math.min(1.5, window.devicePixelRatio || 1);
+    const width = Math.max(1, Math.round(window.innerWidth * scale));
+    const height = Math.max(1, Math.round(window.innerHeight * scale));
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    } else context.clearRect(0, 0, width, height);
+    this.effectsShown = shown;
+    if (shown) drawReelEffects(context, effects, width, height);
+  }
+
   /** The card for a shot that just started; it goes again after a few seconds. */
   showCard(card: ShotCard): void {
     if (!this.card) return;
@@ -606,6 +641,8 @@ export class DemoViewerHUD {
     this.card?.remove();
     this.veil?.remove();
     this.veil = null;
+    this.effects?.remove();
+    this.effects = null;
     this.endKeys?.remove();
     this.endKeys = null;
     this.endCard = null;

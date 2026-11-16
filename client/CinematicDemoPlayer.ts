@@ -6,7 +6,8 @@
  *   2. Advances through segments as demo ticks pass
  *   3. Switches camera controller per segment (spectator chase-cam or scripted freefly)
  *   4. Interpolates freefly camera keyframes each frame
- *   5. Applies speed-ramp keyframes within segments
+ *   5. Plays each segment at its planned speeds, its freeze frame and its
+ *      cut on the beat, and reports the transitions and comic effects over it
  *
  * Usage:
  *   const player = new CinematicDemoPlayer(demoViewer, CameraSystem.getInstance());
@@ -23,9 +24,16 @@ import { type CameraPathResult, generateCameraPath, interpolatePath } from "../.
 import type { DemoAnalysis, GroundClearance, HighlightCandidate } from "../../../shared/demo/DemoAnalyzer";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import { type DemoHeader, DemoReader } from "../../../shared/demo/DemoReader";
-import { type CinematicReel, type CinematicSegment, SequenceBuilder } from "../../../shared/demo/SequenceBuilder";
+import {
+  alignSceneCutsToBeats,
+  type CinematicReel,
+  type CinematicSegment,
+  plannedSpeedAt,
+  SequenceBuilder,
+} from "../../../shared/demo/SequenceBuilder";
 import type { DemoViewer } from "./DemoViewer";
 import { type ReelSummary, type ReelTitle, reelSummary, reelTitle } from "./ReelCards";
+import type { ReelEffects } from "./ReelEffects";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -43,6 +51,7 @@ export interface CinematicRecipe {
 const HIGHLIGHT_LABELS: Record<string, string> = {
   frag: "Frag",
   multi_kill: "Multi kill",
+  frag_sequence: "Frag sequence",
   airborne_frag: "Airborne frag",
   streak_kill: "Streak kill",
   first_blood: "First blood",
@@ -99,12 +108,10 @@ export interface ReelInfo {
   currentSpeed: number;
 }
 
-/**
- * How fast a speed change settles, per second of real time. A slow-motion
- * moment eases in and out over about a quarter of a second rather than
- * snapping from full speed.
- */
-const SPEED_EASE_RATE = 12;
+/** How long a frag counter stays on the picture. */
+const STAMP_MS = 900;
+/** The light flash at the middle of a speed-line cut. */
+const WIPE_FLASH_PEAK = 0.3;
 
 /** How long the reel takes to fade in from black at its start and out to black at its end. */
 const REEL_FADE_MS = 1000;
@@ -170,8 +177,18 @@ export class CinematicDemoPlayer {
 
   private currentSegmentIndex = 0;
   private state: CinematicPlayerState = "idle";
-  /** The playback speed as eased toward the segment's keyframes. */
+  /** The playback speed, as the segment's plan gives it at the playhead. */
   private speed = 1;
+  /** Real time the reel has played, its title card and freeze frames included. */
+  private reelClockMs = 0;
+  /** What is left of the current freeze frame; 0 while the shot plays. */
+  private freezeLeftMs = 0;
+  /** The current shot's freeze frame has been held. */
+  private frozeThisShot = false;
+  /** When each of the shot's frag counters came up, in shot time. */
+  private readonly stampShownAt = new Map<number, number>();
+  /** Where the fly-by's victim was last seen in this shot: they leave the recording when they die. */
+  private lastVictimPos: Vec3 | null = null;
   /** Whose eyes the chase camera is behind in this segment. */
   private chaseTarget: string | null = null;
   /** The fly-by camera's own field of view, from before the reel first changed it. */
@@ -296,6 +313,8 @@ export class CinematicDemoPlayer {
   update(deltaMs: number): void {
     if (this.state !== "playing" || !this.reel) return;
 
+    this.reelClockMs += deltaMs;
+
     // The title card over black: the first shot waits, already in place
     if (this.titleHoldMs > 0) {
       this.titleHoldMs = Math.max(0, this.titleHoldMs - deltaMs);
@@ -306,29 +325,45 @@ export class CinematicDemoPlayer {
     const segment = this.reel.segments[this.currentSegmentIndex];
     if (!segment) return;
 
+    // A freeze frame: the picture holds still, the camera with it
+    if (this.freezeLeftMs > 0) {
+      this.shotPlayedMs += deltaMs;
+      this.freezeLeftMs = Math.max(0, this.freezeLeftMs - deltaMs);
+      if (this.freezeLeftMs === 0) this.demoViewer.play();
+      return;
+    }
+
     // The playhead, not the last delivered frame: in slow motion a frame stays
     // current for several screen frames, and a camera keyed to it steps.
     const playheadTick = this.demoViewer.getInfo().playheadTick;
 
-    // ── Segment end check ─────────────────────────────────────────
-    if (playheadTick >= segment.endTick) {
+    // ── Segment end check: its last tick, or its beat ─────────────
+    const beatDue = segment.cutAtMs !== undefined && this.reelClockMs >= segment.cutAtMs;
+    if (playheadTick >= segment.endTick || beatDue) {
       this._advanceSegment();
       return;
     }
 
-    // ── Speed keyframes, eased ────────────────────────────────────
-    let targetSpeed = segment.playbackSpeed;
-    for (const kf of segment.speedKeyframes ?? []) {
-      if (playheadTick >= kf.tick) targetSpeed = kf.speed;
+    if (segment.freeze && !this.frozeThisShot && playheadTick >= segment.freeze.tick) {
+      this.frozeThisShot = true;
+      this.freezeLeftMs = segment.freeze.ms;
+      this.demoViewer.pause();
+      return;
     }
+
+    // ── Speed: the plan at the playhead, its ramps and all ────────
     this.shotPlayedMs += deltaMs;
-    this.speed += (targetSpeed - this.speed) * (1 - Math.exp((-SPEED_EASE_RATE * deltaMs) / 1000));
-    if (Math.abs(targetSpeed - this.speed) < 0.005) this.speed = targetSpeed;
+    this.speed = plannedSpeedAt(segment, playheadTick);
     this.demoViewer.setSpeed(this.speed);
+
+    for (const stamp of segment.stamps ?? []) {
+      if (playheadTick >= stamp.tick && !this.stampShownAt.has(stamp.tick))
+        this.stampShownAt.set(stamp.tick, this.shotPlayedMs);
+    }
 
     // ── Chase target ──────────────────────────────────────────────
     const path = this.cameraPaths[segment.segmentIndex];
-    if (path?.type === "chase") this._followChaseTarget(segment, playheadTick);
+    if (path?.type === "chase") this._followChaseTarget(segment);
 
     // ── Freefly camera path interpolation ─────────────────────────
     if (path?.type === "freefly" && path.keyframes?.length) {
@@ -364,7 +399,7 @@ export class CinematicDemoPlayer {
   resume(): void {
     if (this.state !== "paused") return;
     this._setState("playing");
-    if (this.titleHoldMs === 0) this.demoViewer.play();
+    if (this.titleHoldMs === 0 && this.freezeLeftMs === 0) this.demoViewer.play();
   }
 
   togglePlayPause(): void {
@@ -377,6 +412,7 @@ export class CinematicDemoPlayer {
     const clamped = Math.max(0, Math.min(index, this.reel.segments.length - 1));
     this.currentSegmentIndex = clamped;
     this.titleHoldMs = 0;
+    this.reelClockMs = this._shotStartMs(clamped);
     this._applySegment(this.reel.segments[clamped]);
     if (this.state === "paused" || this.state === "ended") this._setState("playing");
   }
@@ -405,9 +441,32 @@ export class CinematicDemoPlayer {
   }
 
   private _holdForTitle(): void {
+    this.reelClockMs = 0;
     if (this.titleHoldTotalMs <= 0) return;
     this.titleHoldMs = this.titleHoldTotalMs;
     this.demoViewer.pause();
+  }
+
+  /** Reel time a shot starts at: the title card and the shots before it, each to its beat if it has one. */
+  private _shotStartMs(index: number): number {
+    let at = this.titleHoldTotalMs;
+    for (const segment of (this.reel?.segments ?? []).slice(0, index)) at = segment.cutAtMs ?? at + segment.durationMs;
+    return at;
+  }
+
+  /**
+   * Put the cuts between scenes on the beats of the music the reel is set
+   * to (`beatsMs` in reel time, from the start of the title card), then play
+   * it again from the start.
+   */
+  alignCutsToBeats(beatsMs: readonly number[]): void {
+    if (!this.reel || !this.header) return;
+    const tickRate = this.header.tickRate;
+    this.reel = alignSceneCutsToBeats(this.reel, beatsMs, this.titleHoldTotalMs);
+    this.cameraPaths = this.reel.segments.map((seg) =>
+      generateCameraPath(seg.cameraPreset, seg.highlight, seg.startTick, seg.endTick, tickRate),
+    );
+    this._startPlayback();
   }
 
   nextSegment(): void {
@@ -469,7 +528,9 @@ export class CinematicDemoPlayer {
     if (segment) {
       const span = segment.endTick - segment.startTick;
       const through = span > 0 ? (this.demoViewer.getInfo().playheadTick - segment.startTick) / span : 0;
-      elapsedMs += segment.durationMs * Math.max(0, Math.min(1, through));
+      const freezeMs = segment.freeze?.ms ?? 0;
+      const frozenMs = this.frozeThisShot ? freezeMs - this.freezeLeftMs : 0;
+      elapsedMs += frozenMs + (segment.durationMs - freezeMs) * Math.max(0, Math.min(1, through));
     }
     if (this.state === "ended") elapsedMs = totalMs;
     return {
@@ -540,8 +601,7 @@ export class CinematicDemoPlayer {
     const first = this.currentSegmentIndex === 0;
     const last = this.currentSegmentIndex === (this.reel?.segments.length ?? 0) - 1;
     const into = 1 - Math.min(1, this.shotPlayedMs / (first ? REEL_FADE_MS : span));
-    const ticksLeft = segment.endTick - this.demoViewer.getInfo().playheadTick;
-    const msLeft = ((ticksLeft / this.tickRate) * 1000) / Math.max(0.05, this.speed);
+    const msLeft = this._shotMsLeft(segment);
     const out = 1 - Math.min(1, Math.max(0, msLeft) / (last ? REEL_FADE_MS : span));
 
     let veil: ReelVeil = { color: "black", opacity: 0 };
@@ -553,9 +613,64 @@ export class CinematicDemoPlayer {
     if (segment.transitionIn === "crossfade") take("black", CROSSFADE_DIP * into);
     if (segment.transitionOut === "fade_to_black") take("black", out);
     if (segment.transitionOut === "white_flash") take("white", FLASH_PEAK * out * out);
+    if (segment.transitionIn === "speed_wipe") take("white", WIPE_FLASH_PEAK * into * into);
+    if (segment.transitionOut === "speed_wipe") take("white", WIPE_FLASH_PEAK * out * out);
     const next = this.reel?.segments[this.currentSegmentIndex + 1];
     if (next?.transitionIn === "crossfade") take("black", CROSSFADE_DIP * out);
     return veil;
+  }
+
+  /** Real time left in the shot: to its beat, or through its ticks at its speed now, and its freeze. */
+  private _shotMsLeft(segment: CinematicSegment): number {
+    if (segment.cutAtMs !== undefined) return segment.cutAtMs - this.reelClockMs;
+    const ticksLeft = segment.endTick - this.demoViewer.getInfo().playheadTick;
+    const freeze = segment.freeze && !this.frozeThisShot ? segment.freeze.ms : this.freezeLeftMs;
+    return ((ticksLeft / this.tickRate) * 1000) / Math.max(0.05, this.speed) + freeze;
+  }
+
+  /**
+   * The comic effects over the picture now: speed lines across a cut that
+   * jumps ahead, the freeze frame's panel and caption, and a frag counter.
+   */
+  getEffects(): ReelEffects {
+    const effects: ReelEffects = { wipe: null, freeze: null, stamp: null };
+    const segments = this.reel?.segments ?? [];
+    const segment = segments[this.currentSegmentIndex];
+    if (!segment || this.state === "ended" || this.titleHoldMs > 0) return effects;
+    const span = Math.max(1, segment.transitionDurationMs);
+    // Each wipe sweeps one way, the next the other
+    const wipeAngle = (index: number) => (index % 2 === 0 ? -8 : 172);
+    if (segment.transitionIn === "speed_wipe" && this.shotPlayedMs < span) {
+      effects.wipe = {
+        progress: 0.5 + 0.5 * (this.shotPlayedMs / span),
+        angle: wipeAngle(this.currentSegmentIndex - 1),
+        seed: this.currentSegmentIndex - 1,
+      };
+    } else if (segment.transitionOut === "speed_wipe") {
+      const left = this._shotMsLeft(segment);
+      if (left < span)
+        effects.wipe = {
+          progress: 0.5 * (1 - Math.max(0, left) / span),
+          angle: wipeAngle(this.currentSegmentIndex),
+          seed: this.currentSegmentIndex,
+        };
+    }
+    if (segment.freeze && this.frozeThisShot && this.freezeLeftMs > 0) {
+      effects.freeze = {
+        elapsedMs: segment.freeze.ms - this.freezeLeftMs,
+        totalMs: segment.freeze.ms,
+        caption: segment.freeze.caption,
+        seed: this.currentSegmentIndex,
+      };
+    }
+    for (const stamp of segment.stamps ?? []) {
+      const at = this.stampShownAt.get(stamp.tick);
+      if (at === undefined) continue;
+      const ageMs = this.shotPlayedMs - at;
+      if (ageMs < STAMP_MS && (!effects.stamp || ageMs < effects.stamp.ageMs))
+        effects.stamp = { text: stamp.text, ageMs, totalMs: STAMP_MS };
+    }
+    return effects;
   }
 
   private _applySegment(segment: CinematicSegment): void {
@@ -563,8 +678,12 @@ export class CinematicDemoPlayer {
     this.shotPlayedMs = 0;
     this.flybyPos = null;
     this.flybyLook = null;
+    this.freezeLeftMs = 0;
+    this.frozeThisShot = false;
+    this.stampShownAt.clear();
+    this.lastVictimPos = null;
     this.demoViewer.seekToTick(segment.startTick);
-    this.speed = segment.playbackSpeed;
+    this.speed = plannedSpeedAt(segment, segment.startTick);
     this.demoViewer.setSpeed(this.speed);
     this.demoViewer.play();
 
@@ -573,7 +692,7 @@ export class CinematicDemoPlayer {
     if (path?.type === "chase") {
       this.cameraSystem.setController("spectator");
       this.chaseTarget = null;
-      this._followChaseTarget(segment, segment.startTick);
+      this._followChaseTarget(segment);
     } else {
       this.cameraSystem.setController("freefly");
       // Snap to first keyframe position immediately
@@ -588,18 +707,16 @@ export class CinematicDemoPlayer {
   }
 
   /**
-   * Point the chase camera at the player the shot is about. A victim shot
-   * watches the victim up to the frag and the killer after it: the victim
-   * leaves the recording when they die, and a camera left on them holds a
-   * frozen picture through the rest of a slowed shot. Whoever the shot wants
-   * gives way to the other player while they are not in the recording.
+   * Point the chase camera at the player the shot is about. A victim's shot
+   * ends on the frag, so the camera never has to leave their eyes for the
+   * killer's. Whoever the shot wants gives way to the other player while they
+   * are not in the recording.
    */
-  private _followChaseTarget(segment: CinematicSegment, playheadTick: number): void {
+  private _followChaseTarget(segment: CinematicSegment): void {
     const path = this.cameraPaths[segment.segmentIndex];
     const killer = segment.highlight.primaryPlayer;
     const victim = segment.highlight.victimPlayer;
-    const named = path?.targetEntityId ?? segment.cameraTarget ?? killer;
-    let wanted = segment.cameraPreset === "victim_pov" && playheadTick >= segment.highlight.peakTick ? killer : named;
+    let wanted = path?.targetEntityId ?? segment.cameraTarget ?? killer;
     const other = wanted === killer ? victim : killer;
     const present = (id: string) => this.world.positionOf(id) !== null;
     if (!present(wanted) && other && present(other)) wanted = other;
@@ -624,9 +741,16 @@ export class CinematicDemoPlayer {
     // The shot is the killer's play: look at them, and at the victim too only
     // while the two fit one frame. Aiming between two players across a room
     // shows neither. A scene's ending orbits the frag itself, so when the two
-    // are apart it watches the victim take the hit.
-    const killer = this.world.positionOf(segment.highlight.primaryPlayer);
-    const victim = segment.highlight.victimPlayer ? this.world.positionOf(segment.highlight.victimPlayer) : null;
+    // are apart it watches the victim take the hit, and keeps watching where
+    // they died once they have left the recording.
+    const h = segment.highlight;
+    const killer = this.world.positionOf(h.primaryPlayer);
+    const victimId = segment.victimTarget ?? h.victimPlayer;
+    const seen = victimId ? this.world.positionOf(victimId) : null;
+    if (seen) this.lastVictimPos = seen;
+    const fragDone = this.demoViewer.getInfo().playheadTick >= h.peakTick;
+    const deathSpot = segment.cameraPreset === "replay_orbit" && fragDone ? (h.victimPos ?? null) : null;
+    const victim = seen ?? this.lastVictimPos ?? deathSpot;
     const together =
       killer &&
       victim &&

@@ -1190,6 +1190,7 @@ export class DemoService {
       this.demoHud?.setTitleVisible(this.activeCinematicPlayer.isShowingTitle());
       const veil = this.activeCinematicPlayer.getVeil();
       this.demoHud?.setVeil(veil.color, veil.opacity);
+      this.demoHud?.setEffects(this.activeCinematicPlayer.getEffects());
     } else {
       this.demoHud?.update(playback);
       if (this.demoHud) this.presentDemoEnds(this.demoHud, playback, performance.now());

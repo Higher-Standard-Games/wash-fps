@@ -1,4 +1,5 @@
 import { type CinematicDemoPlayer, type CinematicRecipe, shotCard } from "../CinematicDemoPlayer";
+import { drawReelEffects } from "../ReelEffects";
 
 /** Reel graphics share their copy/data with playback; controls stay outside this surface. */
 export function drawReelOverlay(
@@ -7,6 +8,8 @@ export function drawReelOverlay(
   recipe: CinematicRecipe,
 ): void {
   const { width, height } = context.canvas;
+  // The comic effects first, at the movie's own size, so the veil covers them as it covers the picture
+  drawReelEffects(context, player.getEffects(), width, height);
   context.save();
   context.scale(width / 1920, height / 1080);
   const veil = player.getVeil();
