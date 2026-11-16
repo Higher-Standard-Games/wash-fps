@@ -157,6 +157,20 @@ export interface BotOptions {
   bodyScale?: number;
   /** Slime and lava do not hurt this bot (a campaign boss): it fights on in them. Not part of the rating identity. */
   liquidImmune?: boolean;
+  /**
+   * Decide on every n-th snapshot while roaming (1, the default: every one).
+   * A fight, a dodge and a running movement sequence decide on every snapshot
+   * whatever this is; perception and aim run on every snapshot and tick. Bots
+   * take turns (BotScheduler.decisionPhase), so a match's decisions spread
+   * over the snapshots. For head-to-head tests of the decision rate.
+   */
+  decideEvery?: number;
+  /**
+   * Choose between an item, a hunt and holding ground by score
+   * (goals/RoamChoice.ts) instead of the brain's ladder of rules, for
+   * head-to-head tests. Not part of the rating identity.
+   */
+  scoredGoals?: boolean;
   /** Build a DecisionTrace with every decision, for tools (bot:motion --trace). */
   trace?: boolean;
   /**

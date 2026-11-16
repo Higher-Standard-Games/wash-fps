@@ -327,6 +327,10 @@ export class HybridBrain extends BotBrain {
     return this._stateMachine.moodState;
   }
 
+  override isSequenceActive(): boolean {
+    return this._stateMachine.isSequenceActive();
+  }
+
   override getNavigationDebug(): string | null {
     return this._stateMachine.getNavigationDebug();
   }

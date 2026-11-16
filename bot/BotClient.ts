@@ -15,7 +15,7 @@ import { type BotReference, canonicalBotReference } from "../../../shared/rankin
 import { debugEnabled, debugLog } from "../server/DebugLog";
 import { isBotName } from "../shared/bot/BotNames";
 import { BotAimController } from "./BotAimController";
-import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
+import { type BotBrain, type BotInput, BotState, travelYaw } from "./BotBrain";
 import { BotCallouts, placePosition } from "./BotCallouts";
 import {
   type BotDifficulty,
@@ -31,6 +31,7 @@ import { BotGameState, type BotSelf } from "./BotGameState";
 import { BotPerception } from "./BotPerception";
 import { initialBotReference, modelDigest } from "./BotRatingIdentity";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
+import { BOT_TICK_MS, decisionPhase, scheduleBotTick } from "./BotScheduler";
 import type { BotVision, VisionResult } from "./BotVision";
 import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
@@ -126,7 +127,11 @@ export class BotClient extends EventEmitter {
   readonly referenceReady: Promise<void>;
 
   // 125Hz input loop (matches server tick rate)
-  private _inputLoopTimer: ReturnType<typeof setInterval> | null = null;
+  /** Takes this bot's input loop off the shared timer (BotScheduler). */
+  private _inputLoopTimer: (() => void) | null = null;
+  /** Decide on every n-th snapshot while roaming (BotOptions.decideEvery), on this bot's turn. */
+  private readonly _decideEvery: number;
+  private readonly _decisionPhase = decisionPhase();
   /** What this bot's snapshots cost, all of each and its decision, since it was made. */
   readonly timings: BotTimings = { snapshot: new TimeHistogram(), decide: new TimeHistogram() };
   private _lastBotInput: BotInput | null = null; // Cached AI decision, re-sent at 125Hz
@@ -191,9 +196,11 @@ export class BotClient extends EventEmitter {
     if (options.habitItem) brain.setHabitItem(options.habitItem);
     if (options.strategies) brain.limitStrategies(options.strategies as StrategyId[]);
     if (options.weights) brain.scaleWeights(options.weights);
+    this._decideEvery = Math.max(1, Math.floor(options.decideEvery ?? 1));
     if (options.fightOff) brain.setFightOff(options.fightOff as FightHabit[]);
     if (options.bodyScale) brain.setBodyScale(options.bodyScale);
     if (options.liquidImmune) brain.setLiquidImmune(true);
+    if (options.scoredGoals) brain.setScoredGoals(true);
     if (options.trace) brain.setTracing(true);
     this._brain = brain;
     this._aim = new BotAimController(this._difficulty);
@@ -671,8 +678,10 @@ export class BotClient extends EventEmitter {
       }
 
       // ── AI Decision ─────────────────────────────────────────────
-      // AI decides on each snapshot. The decision is cached and re-sent
-      // at 125Hz by the input loop (see _startInputLoop).
+      // AI decides on each snapshot, or each n-th while roaming
+      // (decideEvery). The decision is cached and re-sent at 125Hz by the
+      // input loop (see _startInputLoop), its view turning every tick.
+      if (this._skipsDecision()) return;
 
       // Run vision query if available
       if (this._vision) {
@@ -741,10 +750,22 @@ export class BotClient extends EventEmitter {
   // command each tick. This matches how human clients send at 125Hz
   // via FPSController.commandAccumulator.
 
+  /**
+   * Whether this snapshot passes without a decision: with decideEvery above
+   * 1, while roaming with no sequence running, off this bot's turn. The last
+   * decision keeps being sent.
+   */
+  private _skipsDecision(): boolean {
+    if (this._decideEvery <= 1 || !this._lastBotInput) return false;
+    const state = this._brain.getState();
+    if (state === BotState.FIGHT || state === BotState.DODGE || this._brain.isSequenceActive()) return false;
+    return (this._tickCount + this._decisionPhase) % this._decideEvery !== 0;
+  }
+
   private _startInputLoop(): void {
     if (this._inputLoopTimer) return;
-    const TICK_MS = 8; // 125Hz = 1000/125 = 8ms
-    this._inputLoopTimer = setInterval(() => {
+    const TICK_MS = BOT_TICK_MS;
+    this._inputLoopTimer = scheduleBotTick(() => {
       if (!this._lastBotInput || this._isDead || this._state !== "playing") {
         this._script = null;
         this._paced = null;
@@ -780,7 +801,7 @@ export class BotClient extends EventEmitter {
         this._aim.reset(input.yaw, input.pitch);
       }
       if (script.sent >= script.inputs.length) this._script = null;
-    }, TICK_MS);
+    });
     console.log(`${this._logPrefix} Started 125Hz input loop`);
   }
 
@@ -843,7 +864,7 @@ export class BotClient extends EventEmitter {
 
   private _stopInputLoop(): void {
     if (this._inputLoopTimer) {
-      clearInterval(this._inputLoopTimer);
+      this._inputLoopTimer();
       this._inputLoopTimer = null;
     }
   }

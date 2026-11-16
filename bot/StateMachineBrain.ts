@@ -40,6 +40,7 @@ import type { BotGoal, ItemGoalChoice } from "./goals/BotGoal";
 import { isMajorItem } from "./goals/considerations/ItemFacts";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
 import { respawnTickOf } from "./goals/ItemGoalSource";
+import { chooseRoam, holdDesire, huntDesire, type RoamPick } from "./goals/RoamChoice";
 import { InputClaims } from "./InputClaims";
 import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
@@ -70,6 +71,8 @@ const RETREAT_HEALTH_THRESHOLD = 25;
 const FIGHT_RANGE = 2000;
 /** A teammate's call of enemies is worth hunting this long, ticks. */
 const TEAM_SIGHTING_TICKS = 6 * TICK_RATE;
+/** A bot's own sighting of an enemy is worth hunting for this long, ticks. */
+const ENEMY_SIGHTING_TICKS = 300;
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
 /** Blocked in a fight, the bot runs the open way this long before the fight steers again. */
 const UNSTICK_TICKS = Math.round(0.5 * 125);
@@ -186,6 +189,9 @@ export class StateMachineBrain extends BotBrain {
   private _bodyScale = 1;
   /** Slime and lava do not hurt this bot (a campaign boss), so it does not get out of them. */
   private _liquidImmune = false;
+  /** Roam by score: see setScoredGoals. */
+  private _scoredGoals = false;
+  private _roamMemo: { tick: number; pick: RoamPick | null } | null = null;
   private _leadReactionDelayMs = 0;
   private _cancelScript = false;
   private _lastDecisionTick: number = 0;
@@ -367,6 +373,11 @@ export class StateMachineBrain extends BotBrain {
     this._liquidImmune = immune;
   }
 
+  /** Roam by score (goals/RoamChoice.ts): see BotOptions.scoredGoals. */
+  setScoredGoals(on: boolean): void {
+    this._scoredGoals = on;
+  }
+
   /** This bot's body is `scale` times a player's (a campaign boss): its shots leave from its own eye. */
   setBodyScale(scale: number): void {
     this._bodyScale = scale;
@@ -433,7 +444,7 @@ export class StateMachineBrain extends BotBrain {
     return this._mood.retreatHealth(base) * this._strategy.stance.retreatScale;
   }
 
-  isSequenceActive(): boolean {
+  override isSequenceActive(): boolean {
     return this._traversal.runtime.isActive;
   }
 
@@ -1211,26 +1222,53 @@ export class StateMachineBrain extends BotBrain {
     if (state.self.armor < 25 && !this._getHuntTarget(state)) return true;
     const best = this._selectItemGoal(state);
     if (!best) return this._goalArbiterMode === "legacy" && state.self.armor < 25;
+    const pick = this._roamPick(state);
+    if (pick !== undefined) return pick === "item";
     const worth = (SEEK_DESIRE_BASE + SEEK_DESIRE_PER_AGGRESSION * this._weights(state).aggression) * stance.seekScale;
     return best.desire >= worth;
   }
 
   private _getHuntTarget(state: BotGameState): Vec3 | null {
-    // Go to last known enemy position (if recent)
-    let bestTarget: Vec3 | null = null;
-    let bestTick = 0;
+    return this._huntSighting(state)?.position ?? null;
+  }
 
+  /**
+   * The freshest enemy sighting (within ENEMY_SIGHTING_TICKS), else a
+   * teammate's call (within TEAM_SIGHTING_TICKS), with how fresh it is: 1 just
+   * seen, falling to 0 at the end of its window.
+   */
+  private _huntSighting(state: BotGameState): { position: Vec3; fresh: number } | null {
+    let best: { position: Vec3; fresh: number } | null = null;
+    let bestTick = 0;
     for (const [, data] of state.lastKnownEnemyPositions) {
-      if (data.tick > bestTick && state.tick - data.tick < 300) {
+      if (data.tick > bestTick && state.tick - data.tick < ENEMY_SIGHTING_TICKS) {
         bestTick = data.tick;
-        bestTarget = data.position;
+        best = { position: data.position, fresh: 1 - (state.tick - data.tick) / ENEMY_SIGHTING_TICKS };
       }
     }
-    // Else where a teammate last called enemies, while the call is fresh.
     const call = this._teamSighting;
-    if (!bestTarget && call && state.tick - call.tick < TEAM_SIGHTING_TICKS) bestTarget = call.position;
+    if (!best && call && state.tick - call.tick < TEAM_SIGHTING_TICKS)
+      best = { position: call.position, fresh: 1 - (state.tick - call.tick) / TEAM_SIGHTING_TICKS };
+    return best;
+  }
 
-    return bestTarget;
+  /**
+   * With scoredGoals, what roaming goes for (goals/RoamChoice.ts): the item
+   * arbiter's best goal, the freshest sighting or the territory, by desire.
+   * Undefined without scoredGoals: the ladder of rules decides.
+   */
+  private _roamPick(state: BotGameState): RoamPick | null | undefined {
+    if (!this._scoredGoals) return undefined;
+    if (this._roamMemo?.tick === state.tick) return this._roamMemo.pick;
+    const weights = this._weights(state);
+    const keeps = selectGametypeHabits(state.matchState.gametypeName).keepsTerritory;
+    const pick = chooseRoam({
+      item: this._selectItemGoal(state)?.desire ?? 0,
+      hunt: huntDesire(weights, this._strategy.stance.seekScale, this._huntSighting(state)?.fresh ?? 0),
+      hold: holdDesire(weights, keeps && this._territoryPoint(state) !== null),
+    });
+    this._roamMemo = { tick: state.tick, pick };
+    return pick;
   }
 
   /** A teammate called enemies at a place (BotCallouts): somewhere to hunt. */
@@ -1426,6 +1464,7 @@ export class StateMachineBrain extends BotBrain {
       navigateToItem: (...args) => brain._navigateToItem(...args),
       navigateGoal: (...args) => brain._orders.navigateGoal(...args),
       huntTarget: (...args) => brain._getHuntTarget(...args),
+      roamPick: (...args) => brain._roamPick(...args),
     };
   }
 

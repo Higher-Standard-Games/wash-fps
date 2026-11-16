@@ -18,6 +18,7 @@ import type { BotNavGraph } from "../BotNavGraph";
 import type { BotVision, EnemyTrack, VisionResult } from "../BotVision";
 import { selectBestWeapon } from "../BotWeaponProfile";
 import type { BotGoal, ItemGoalChoice } from "../goals/BotGoal";
+import type { RoamPick } from "../goals/RoamChoice";
 import type { BotNavigator } from "../navigation/BotNavigator";
 import { PATH_ARRIVED_THRESHOLD, PATH_RECALC_INTERVAL } from "../navigation/BotNavigator";
 
@@ -65,6 +66,8 @@ export interface RoamHost {
   navigateGoal(state: BotGameState, goal: BotGoal, urgent: boolean): BotInput;
   /** Where to hunt: the freshest enemy sighting, or a teammate's call. */
   huntTarget(state: BotGameState): Vec3 | null;
+  /** What roaming goes for by score, with scoredGoals; undefined without (goals/RoamChoice.ts). */
+  roamPick(state: BotGameState): RoamPick | null | undefined;
 }
 
 export class BotRoam {
@@ -316,6 +319,18 @@ export class BotRoam {
   hunt(state: BotGameState): BotInput {
     this.huntTimer++;
 
+    // By score, with scoredGoals: the territory, the arbiter's goal or the
+    // sighting, whichever is worth most; patrol when none is worth anything.
+    const pick = this.host.roamPick(state);
+    if (pick !== undefined) {
+      const goal = pick === "item" ? this.host.selectItemGoal(state)?.goal : null;
+      if (goal) return this.host.navigateGoal(state, goal, false);
+      const target =
+        pick === "hold" ? this.host.territoryPoint(state) : pick === "hunt" ? this.host.huntTarget(state) : null;
+      if (target) return this.host.nav.navigateTo(state, target, false);
+      return this.patrol(state);
+    }
+
     const territory = this.host.territoryPoint(state);
     if (territory) return this.host.nav.navigateTo(state, territory, false);
 
@@ -330,7 +345,11 @@ export class BotRoam {
     if (huntTarget) {
       return this.host.nav.navigateTo(state, huntTarget, false);
     }
+    return this.patrol(state);
+  }
 
+  /** Nowhere to be: a random nav node to walk toward, else a run with a turn now and then. */
+  private patrol(state: BotGameState): BotInput {
     // NavGraph patrol: pick a random nav node to walk toward
     if (this.host.navGraph) {
       const nodes = this.host.navGraph.nodes;

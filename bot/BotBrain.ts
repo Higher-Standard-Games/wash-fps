@@ -123,6 +123,10 @@ export abstract class BotBrain {
   getState(): BotState {
     return this.currentState;
   }
+  /** Whether a movement sequence is running, which needs a decision every snapshot. */
+  isSequenceActive(): boolean {
+    return false;
+  }
   /** Compact traversal state for periodic bot diagnostics. */
   getNavigationDebug(): string | null {
     return null;
