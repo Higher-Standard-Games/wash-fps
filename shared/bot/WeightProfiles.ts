@@ -249,3 +249,33 @@ export function selectWeightProfile(
   }
   return DEFAULT_WEIGHT_PROFILE;
 }
+
+/**
+ * How a gametype is played beyond what the weights score: habits that are on
+ * or off by mode rather than weighed. Bot code reads these instead of the
+ * gametype's name.
+ */
+export interface GametypeHabits {
+  /**
+   * Keep to a territory (BotTerritory): patrol reachable upper floors, round
+   * a timed item while it is down rather than standing at it, and hold the
+   * floor above an enemy chased below.
+   */
+  keepsTerritory: boolean;
+  /** Keep the high ground over an enemy below, even with the "height" habit switched off for tests. */
+  alwaysKeepsHeight: boolean;
+  /** Extra reaction time, ms, while more than two frags ahead of the one opponent: a small fixed handicap. */
+  leadReactionDelayMs: number;
+}
+
+const DEFAULT_HABITS: GametypeHabits = { keepsTerritory: false, alwaysKeepsHeight: false, leadReactionDelayMs: 0 };
+
+/** Habits by normalized gametype key (weightProfileKey); a mode without an entry has none of them. */
+export const GAMETYPE_HABITS: Readonly<Record<string, GametypeHabits>> = {
+  // A duel is won by holding ground and timing items over it.
+  duel: { keepsTerritory: true, alwaysKeepsHeight: true, leadReactionDelayMs: 40 },
+};
+
+export function selectGametypeHabits(gametypeName: string | undefined | null): GametypeHabits {
+  return GAMETYPE_HABITS[weightProfileKey(gametypeName)] ?? DEFAULT_HABITS;
+}

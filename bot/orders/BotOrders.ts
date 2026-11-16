@@ -8,7 +8,7 @@
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../../shared/server/simulation/physics/constants";
 import { scaledBodyHeight } from "../../shared/BodyScale";
-import { selectWeightProfile } from "../../shared/bot/WeightProfiles";
+import { selectGametypeHabits, selectWeightProfile } from "../../shared/bot/WeightProfiles";
 import type { BotInput } from "../BotBrain";
 import { type GoalArbiterMode, InputButtons } from "../BotConfig";
 import type { BotGameState, Vec3 } from "../BotGameState";
@@ -51,8 +51,8 @@ export interface OrdersHost {
   readonly claims: InputClaims;
   readonly bodyScale: number;
   readonly goalArbiterMode: GoalArbiterMode;
-  /** Where a Duel bot keeps to, or null outside Duel. */
-  duelTerritory(state: BotGameState, center?: Vec3): Vec3 | null;
+  /** A point on the territory to make for, in a mode that keeps one (GametypeHabits), or null. */
+  territoryPoint(state: BotGameState, center?: Vec3): Vec3 | null;
   startRecovery(state: BotGameState, stuck?: boolean, blockedHeading?: number): BotInput;
 }
 
@@ -94,8 +94,8 @@ export class BotOrders {
     this.host.life.sitePatrol = null;
     const timed = !goal.directive && goal.respawnTick !== undefined && goal.respawnTick > state.tick;
     if (timed && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
-      if (state.matchState.gametypeName.toLowerCase() === "duel") {
-        const patrol = this.host.duelTerritory(state, goal.position);
+      if (selectGametypeHabits(state.matchState.gametypeName).keepsTerritory) {
+        const patrol = this.host.territoryPoint(state, goal.position);
         return patrol ? this.host.nav.navigateTo(state, patrol, false) : this.host.startRecovery(state);
       }
       return this.watchEntrances(state, goal.position);

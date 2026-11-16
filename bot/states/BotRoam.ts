@@ -5,6 +5,7 @@
  */
 
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../../shared/server/simulation/physics/constants";
+import { selectGametypeHabits } from "../../shared/bot/WeightProfiles";
 import { wrapAngle } from "../BotAimController";
 import type { BotInput } from "../BotBrain";
 import { travelYaw } from "../BotBrain";
@@ -50,8 +51,8 @@ export interface RoamHost {
   readonly vision: BotVision | null;
   readonly visionResult: VisionResult | null;
   readonly difficulty: BotDifficulty;
-  /** Where a Duel bot keeps to, or null outside Duel. */
-  duelTerritory(state: BotGameState, center?: Vec3): Vec3 | null;
+  /** A point on the territory to make for, in a mode that keeps one (GametypeHabits), or null. */
+  territoryPoint(state: BotGameState, center?: Vec3): Vec3 | null;
   keepUpperGround(state: BotGameState, enemy: Pick<VisiblePlayer, "position">, input: BotInput): BotInput;
   fireOrigin(state: BotGameState): Vec3;
   moveToward(state: BotGameState, target: Vec3, urgent: boolean): BotInput;
@@ -90,10 +91,10 @@ export class BotRoam {
 
     // Move toward predicted (extrapolated) position using navGraph if available
     const holdUpper =
-      state.matchState.gametypeName.toLowerCase() === "duel" &&
+      selectGametypeHabits(state.matchState.gametypeName).keepsTerritory &&
       target.lastSeenPosition.y < state.self.position.y - 64 &&
       state.self.health >= 50;
-    const territory = holdUpper ? this.host.duelTerritory(state) : null;
+    const territory = holdUpper ? this.host.territoryPoint(state) : null;
     const input =
       holdUpper && !territory
         ? this.host.keepUpperGround(
@@ -273,7 +274,7 @@ export class BotRoam {
       // An item worth having just off the way there is taken first.
       if (choice.stopover && !goal.directive) return this.host.navigateGoal(state, choice.stopover, false);
       const territory =
-        !goal.directive && goal.position.y < state.self.position.y - 48 ? this.host.duelTerritory(state) : null;
+        !goal.directive && goal.position.y < state.self.position.y - 48 ? this.host.territoryPoint(state) : null;
       return territory ? this.host.nav.navigateTo(state, territory, false) : this.host.navigateGoal(state, goal, false);
     }
 
@@ -315,7 +316,7 @@ export class BotRoam {
   hunt(state: BotGameState): BotInput {
     this.huntTimer++;
 
-    const territory = this.host.duelTerritory(state);
+    const territory = this.host.territoryPoint(state);
     if (territory) return this.host.nav.navigateTo(state, territory, false);
 
     // Prefer a scored goal over aimless patrol. Reached when the ladder falls

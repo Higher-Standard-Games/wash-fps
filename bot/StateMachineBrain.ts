@@ -15,7 +15,7 @@
 
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { isBotName } from "../shared/bot/BotNames";
-import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
+import { type BotWeightProfile, selectGametypeHabits, selectWeightProfile } from "../shared/bot/WeightProfiles";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { BotBlockedMove } from "./BotBlockedMove";
 import { BotBrain, type BotInput, BotState, type BrainMatchReport, travelYaw } from "./BotBrain";
@@ -809,12 +809,13 @@ export class StateMachineBrain extends BotBrain {
   // ── Movement Helpers ──────────────────────────────────────────────
 
   /**
-   * Navigate to a target position using NavGraph pathfinding when available.
-   * Falls back to direct movement when no graph exists.
+   * A point on the bot's territory to make for (BotTerritory), round `center`
+   * when given, in a mode that keeps territory (GametypeHabits); null in
+   * others, or when hurt or out of ammo with no center.
    */
-
-  private _duelTerritory(state: BotGameState, center?: Vec3): Vec3 | null {
-    if (state.matchState.gametypeName.toLowerCase() !== "duel" || !this._navGraph || !this._lastBotVision) return null;
+  private _territoryPoint(state: BotGameState, center?: Vec3): Vec3 | null {
+    if (!selectGametypeHabits(state.matchState.gametypeName).keepsTerritory || !this._navGraph || !this._lastBotVision)
+      return null;
     if (
       !center &&
       (state.self.health < 60 ||
@@ -1342,7 +1343,7 @@ export class StateMachineBrain extends BotBrain {
       get goalArbiterMode() {
         return brain._goalArbiterMode;
       },
-      duelTerritory: (...args) => brain._duelTerritory(...args),
+      territoryPoint: (...args) => brain._territoryPoint(...args),
       startRecovery: (...args) => brain._startRecovery(...args),
     };
   }
@@ -1417,7 +1418,7 @@ export class StateMachineBrain extends BotBrain {
       get difficulty() {
         return brain.difficulty;
       },
-      duelTerritory: (...args) => brain._duelTerritory(...args),
+      territoryPoint: (...args) => brain._territoryPoint(...args),
       keepUpperGround: (...args) => brain._fight.keepUpperGround(...args),
       fireOrigin: (...args) => brain._fight.fireOrigin(...args),
       moveToward: (...args) => brain._moveToward(...args),

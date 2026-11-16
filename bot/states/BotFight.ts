@@ -8,6 +8,7 @@
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../../shared/server/simulation/physics/constants";
 import { scaledBodyHeight } from "../../shared/BodyScale";
+import { selectGametypeHabits } from "../../shared/bot/WeightProfiles";
 import { wrapAngle } from "../BotAimController";
 import type { BotInput } from "../BotBrain";
 import { BotState, travelYaw } from "../BotBrain";
@@ -369,7 +370,7 @@ export class BotFight {
     if (
       !vision ||
       !state.self.isGrounded ||
-      (this.host.fightOff.has("height") && state.matchState.gametypeName.toLowerCase() !== "duel") ||
+      (this.host.fightOff.has("height") && !selectGametypeHabits(state.matchState.gametypeName).alwaysKeepsHeight) ||
       self.y - enemy.position.y < 64
     )
       return input;
