@@ -9,9 +9,10 @@
 import {
   type EntitySnapshot,
   type InterpolatedEntity,
+  interpolateEntity,
   lerpOptional,
-  lerpPitch,
 } from "../../../engine/network/client/SnapshotBuffer";
+import { eyeOffsetOf } from "./DemoPovState";
 
 interface DemoTimelineSnapshot {
   tick: number;
@@ -129,45 +130,19 @@ export class DemoEntityTimeline {
   }
 
   private interpolate(a: EntitySnapshot, b: EntitySnapshot, alpha: number): InterpolatedEntity {
-    const t = Math.max(0, Math.min(1, alpha));
     const jumpSq = (b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2;
     if (jumpSq > TELEPORT_SNAP_DIST * TELEPORT_SNAP_DIST) {
       // A recorded teleport is a discrete change at the newer frame's tick.
       // Hold the old state until that tick instead of revealing the destination early.
       return { ...a };
     }
-
-    let yawDelta = b.yaw - a.yaw;
-    while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
-    while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
-
-    return {
-      x: a.x + (b.x - a.x) * t,
-      y: a.y + (b.y - a.y) * t,
-      z: a.z + (b.z - a.z) * t,
-      yaw: a.yaw + yawDelta * t,
-      pitch: lerpPitch(a.pitch, b.pitch, t),
-      vx: a.vx + (b.vx - a.vx) * t,
-      vy: a.vy + (b.vy - a.vy) * t,
-      vz: a.vz + (b.vz - a.vz) * t,
-      grounded: t < 0.5 ? a.grounded : b.grounded,
-      crouching: t < 0.5 ? a.crouching : b.crouching,
-      sliding: t < 0.5 ? a.sliding : b.sliding,
-      wallJumping: t < 0.5 ? a.wallJumping : b.wallJumping,
-      crouchViewOffset:
-        (a.crouchViewOffset ?? (a.crouching || a.sliding ? -24 : 0)) +
-        ((b.crouchViewOffset ?? (b.crouching || b.sliding ? -24 : 0)) -
-          (a.crouchViewOffset ?? (a.crouching || a.sliding ? -24 : 0))) *
-          t,
-      slidePhase: lerpOptional(a.slidePhase, b.slidePhase, t),
-      ledgeGrabPhase: lerpOptional(a.ledgeGrabPhase, b.ledgeGrabPhase, t),
-      strafeInput: t < 0.5 ? a.strafeInput : b.strafeInput,
-      forwardInput: t < 0.5 ? a.forwardInput : b.forwardInput,
-      aiming: t < 0.5 ? a.aiming : b.aiming,
-      waterLevel: t < 0.5 ? a.waterLevel : b.waterLevel,
-      onLadder: t < 0.5 ? a.onLadder : b.onLadder,
-      // The newer mask, as live play reads it: a quad taken or run out shows at once
-      powerupMask: b.powerupMask ?? a.powerupMask,
-    };
+    const result = interpolateEntity(a, b, alpha);
+    // A recording made before the server sent the eye height: the crouch flags
+    // stand in at both ends, so the eye still lowers smoothly
+    if (result.crouchViewOffset === undefined) {
+      const t = Math.max(0, Math.min(1, alpha));
+      result.crouchViewOffset = lerpOptional(eyeOffsetOf(a), eyeOffsetOf(b), t);
+    }
+    return result;
   }
 }

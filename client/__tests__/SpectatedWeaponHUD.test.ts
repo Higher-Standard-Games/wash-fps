@@ -22,6 +22,7 @@ const wvm = {
   cancelSwitch: vi.fn(),
   isSwitching: vi.fn(() => false),
   clearFollowedBob: vi.fn(),
+  setPowerupOutlineOverride: vi.fn(),
   setVisible: vi.fn(),
 };
 

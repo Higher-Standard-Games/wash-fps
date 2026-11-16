@@ -14,10 +14,30 @@
  */
 
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { presentationNow } from "../../../engine/core/PresentationTime";
 import type { InterpolatedEntity } from "../../../engine/network/client/SnapshotBuffer";
 import type { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { canonicalWeaponId } from "../shared/entities/definitions/weapons/WeaponsTable";
+import { maskHasPowerup } from "../shared/items/Powerups";
 import { type DemoPovClock, type DemoPovPresentation, DemoPovState } from "./DemoPovState";
+import {
+  getQuadDamagePulse,
+  QUAD_DAMAGE_COLOR,
+  QUAD_VIEW_WEAPON_OUTLINE_MIN,
+  QUAD_VIEW_WEAPON_OUTLINE_RANGE,
+} from "./QuadDamageVisual";
+
+/** The followers behind someone's eyes now, each driving its view's weapon. */
+const following = new Set<FollowedViewWeapon>();
+
+/**
+ * Whether `view` shows a watched player's gun now: their state drives it
+ * (their quad glow among it), not the local player's.
+ */
+export function isFollowedView(view: WeaponViewManager): boolean {
+  for (const follower of following) if (follower.drives(view)) return true;
+  return false;
+}
 
 export class FollowedViewWeapon {
   private entityId: string | null = null;
@@ -60,8 +80,12 @@ export class FollowedViewWeapon {
     this.cut = true;
     this.stride.reset();
     this.pose = null;
+    if (entityId) following.add(this);
+    else following.delete(this);
     const view = this.readyView();
     if (!view) return;
+    // Their glow, from their next motion update; none until then
+    view.setPowerupOutlineOverride(false, QUAD_DAMAGE_COLOR, 0);
     view.clearFollowedBob();
     if (entityId) view.setVisible(!dead);
   }
@@ -109,6 +133,13 @@ export class FollowedViewWeapon {
     if (!this.entityId) return null;
     const pose = this.stride.update(this.entityId, sample, clock);
     this.pose = pose;
+    // Their gun glows while they carry the quad, as the player's own does
+    const pulse = getQuadDamagePulse(presentationNow() / 1000);
+    this.readyView()?.setPowerupOutlineOverride(
+      maskHasPowerup(sample.powerupMask ?? 0, "quad"),
+      QUAD_DAMAGE_COLOR,
+      QUAD_VIEW_WEAPON_OUTLINE_MIN + QUAD_VIEW_WEAPON_OUTLINE_RANGE * pulse,
+    );
     this.readyView()?.updateFollowedBob({
       aiming: this.aiming,
       deltaTime: pose.demoDeltaSeconds,
@@ -140,6 +171,11 @@ export class FollowedViewWeapon {
   beamMuzzle(): Vector3 | null {
     if (!this.entityId || this.dead) return null;
     return this.readyView()?.getMuzzleWorldPosition() ?? null;
+  }
+
+  /** Whether this follower is driving `view`. */
+  drives(view: WeaponViewManager): boolean {
+    return this.entityId !== null && this.view() === view;
   }
 
   private readyView(): WeaponViewManager | null {

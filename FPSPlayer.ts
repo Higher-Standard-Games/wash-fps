@@ -7,6 +7,7 @@ import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import type { WeaponDef } from "../../shared/entities";
 import type { FPSController } from "./camera/FPSController";
 import { devLog } from "./client/DevLog";
+import { isFollowedView } from "./client/FollowedViewWeapon";
 import { HUDState } from "./client/HUDState";
 import { noteEmptyClipForHints } from "./client/hud/widgets/HintPanel";
 import { isLocalPowerupActive } from "./client/LocalPowerupState";
@@ -84,10 +85,12 @@ export class FPSPlayer {
 
   public update(deltaTime: number): void {
     const weaponView = WeaponViewManager.getInstance();
-    const quadActive = isLocalPowerupActive("quad");
-    const quadPulse = getQuadDamagePulse(performance.now() / 1000);
-    const quadOutlineWidth = QUAD_VIEW_WEAPON_OUTLINE_MIN + QUAD_VIEW_WEAPON_OUTLINE_RANGE * quadPulse;
-    weaponView.setPowerupOutlineOverride(quadActive, QUAD_DAMAGE_COLOR, quadOutlineWidth);
+    // Your own quad on your own gun; a watched player's gun follows theirs
+    if (!isFollowedView(weaponView)) {
+      const quadPulse = getQuadDamagePulse(performance.now() / 1000);
+      const quadOutlineWidth = QUAD_VIEW_WEAPON_OUTLINE_MIN + QUAD_VIEW_WEAPON_OUTLINE_RANGE * quadPulse;
+      weaponView.setPowerupOutlineOverride(isLocalPowerupActive("quad"), QUAD_DAMAGE_COLOR, quadOutlineWidth);
+    }
 
     if (!this.controller.isEnabled()) {
       this.stopBeamPresentation();

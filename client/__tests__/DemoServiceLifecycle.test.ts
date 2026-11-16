@@ -105,7 +105,12 @@ function seedPlayback(
   // A charge glow is disposed via disposeClusteredLight (WS1), which reads
   // light.getScene() to detach from the cluster — return null (unclustered).
   const glow = { dispose: vi.fn(), getScene: () => null };
-  const demoWvm = { dispose: vi.fn(), clearFollowedBob: vi.fn(), setVisible: vi.fn() };
+  const demoWvm = {
+    dispose: vi.fn(),
+    clearFollowedBob: vi.fn(),
+    setVisible: vi.fn(),
+    setPowerupOutlineOverride: vi.fn(),
+  };
 
   Object.assign(service as unknown as Record<string, unknown>, {
     _demoWvm: demoWvm,

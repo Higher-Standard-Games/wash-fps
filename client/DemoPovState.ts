@@ -21,6 +21,14 @@ import type { PlayerState } from "../../../engine/viewport/PlayerState";
 import type { ViewportDelta } from "../../../engine/viewport/ViewportDelta";
 
 const FALLBACK_CROUCH_VIEW_OFFSET = -24;
+
+/**
+ * A watched player's eye offset from standing height: the recorded one, or
+ * from the crouch and slide flags in a recording made before it was sent.
+ */
+export function eyeOffsetOf(entity: Pick<InterpolatedEntity, "crouchViewOffset" | "crouching" | "sliding">): number {
+  return entity.crouchViewOffset ?? (entity.crouching || entity.sliding ? FALLBACK_CROUCH_VIEW_OFFSET : 0);
+}
 /** Frames a ledge grab keeps the eye following exactly after it ends, as the local camera does. */
 const GRAB_SNAP_FRAMES = 15;
 
@@ -128,8 +136,7 @@ export class DemoPovState {
       this.ledgePitch = easeLedgePitch(this.ledgePitch, sample.ledgeGrabPhase ?? 0, demoDeltaSeconds);
     }
 
-    const crouchOffset =
-      sample.crouchViewOffset ?? (sample.crouching || sample.sliding ? FALLBACK_CROUCH_VIEW_OFFSET : 0);
+    const crouchOffset = eyeOffsetOf(sample);
 
     this.lastEntityId = entityId;
     this.lastDiscontinuityId = clock.discontinuityId;
@@ -176,8 +183,7 @@ export class DemoPovState {
  * else's eyes is built here, live or recorded.
  */
 export function watchedEyePose(sample: InterpolatedEntity, pov: DemoPovPresentation | null): FirstPersonPose {
-  const crouchOffset =
-    sample.crouchViewOffset ?? (sample.crouching || sample.sliding ? FALLBACK_CROUCH_VIEW_OFFSET : 0);
+  const crouchOffset = eyeOffsetOf(sample);
   return {
     x: sample.x,
     y: (pov?.smoothedY ?? sample.y) + (pov?.eyeHeight ?? DEFAULT_VIEWHEIGHT + crouchOffset),

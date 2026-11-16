@@ -5,6 +5,7 @@ import {
   RIOTKITTY_MODEL_ROOT,
   ROBOT_MODEL_ROOT,
 } from "../../../engine/animation/PlayerModelAssets";
+import { presentationNow } from "../../../engine/core/PresentationTime";
 import { decodeLook } from "../shared/players/PlayerLook";
 import {
   forcedModelForName,
@@ -1765,7 +1766,7 @@ export class RemotePlayerRenderer {
       this.updateModel(hitbox, interp, entityId, this.demoTimeline ? this.demoAnimationTimeScale : 1, visible);
 
       // Powerup carrier glow (pulses, so it must run every frame, not on change)
-      this.updatePowerupGlow(hitbox, entityId, interp.powerupMask ?? 0, performance.now() / 1000);
+      this.updatePowerupGlow(hitbox, entityId, interp.powerupMask ?? 0, presentationNow() / 1000);
 
       // Animation runs only for a player who is drawn and big enough to read.
       this.applyAnimationLod(hitbox, visible, cameraPos, animationLodRadiusSq, poseFrustum);

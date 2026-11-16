@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { InterpolatedEntity } from "../../../../engine/network/client/SnapshotBuffer";
 import type { WeaponViewManager } from "../../../../engine/weapon/WeaponViewManager";
-import { FollowedViewWeapon } from "../FollowedViewWeapon";
+import { FollowedViewWeapon, isFollowedView } from "../FollowedViewWeapon";
 
 /** The calls the helper makes, without a Babylon scene behind them. */
 function makeView() {
@@ -22,6 +22,7 @@ function makeView() {
     setVisible: vi.fn(),
     presentFire: vi.fn(),
     getProjectileMuzzlePosition: vi.fn(() => ({ x: 1, y: 2, z: 3 })),
+    setPowerupOutlineOverride: vi.fn(),
   };
   return view;
 }
@@ -49,6 +50,21 @@ describe("FollowedViewWeapon", () => {
   beforeEach(() => {
     view = makeView();
     followed = new FollowedViewWeapon(() => view as unknown as WeaponViewManager);
+  });
+
+  it("lights the gun with the watched player's quad, and drives the view only while following", () => {
+    const clock = { playheadTick: 0, tickRate: 60, paused: false, discontinuityId: 0 };
+    const asView = view as unknown as WeaponViewManager;
+    expect(isFollowedView(asView)).toBe(false);
+    followed.follow("player_2");
+    expect(isFollowedView(asView)).toBe(true);
+    // Bit 0 is the quad
+    followed.updateMotion({ ...running(0), powerupMask: 1 }, clock);
+    expect(view.setPowerupOutlineOverride.mock.lastCall?.[0]).toBe(true);
+    followed.updateMotion({ ...running(0), powerupMask: 0 }, clock);
+    expect(view.setPowerupOutlineOverride.mock.lastCall?.[0]).toBe(false);
+    followed.follow(null);
+    expect(isFollowedView(asView)).toBe(false);
   });
 
   it("shows the gun of a living player as we start watching, and hides a dead one's", () => {
