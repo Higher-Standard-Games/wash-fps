@@ -48,6 +48,7 @@ import { isMajorItem } from "./goals/considerations/ItemFacts";
 import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
 import { respawnTickOf } from "./goals/ItemGoalSource";
+import { InputClaims } from "./InputClaims";
 import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
 import { inHarmfulLiquid, liquidEscapeTarget } from "./LiquidEscape";
@@ -257,8 +258,8 @@ export class StateMachineBrain extends BotBrain {
 
   // Movement variety
   private _strafeDirection: number = 1; // 1 or -1
-  /** This decision's move is an exact line (a sequence, a trick's approach): not steered. */
-  private _exactMove = false;
+  /** Who holds movement, view and buttons this decision (InputClaims). */
+  private readonly _claims = new InputClaims();
   /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
   /** Player names by entity, from the last decision: people's stack curve is for people. */
   private _names: ReadonlyMap<string, string> = new Map();
@@ -340,7 +341,6 @@ export class StateMachineBrain extends BotBrain {
   // Store last vision result for use across state methods
   private _lastVision: VisionResult | null = null;
   private _lastBotVision: BotVision | null = null;
-  private _suppressTraversalAutomation: boolean = false;
   override steeredOffWall(): boolean {
     return this._steering.steered;
   }
@@ -438,6 +438,7 @@ export class StateMachineBrain extends BotBrain {
       health: self.health,
       armor: self.armor,
       weapon: self.currentWeapon,
+      movementOwner: this._claims.owner("movement"),
     };
   }
 
@@ -601,8 +602,7 @@ export class StateMachineBrain extends BotBrain {
     this._navGraph = navGraph ?? null;
 
     // Dead → just wait (BotClient handles RequestSpawn)
-    this._suppressTraversalAutomation = false;
-    this._exactMove = false;
+    this._claims.begin();
     if (state.self.isDead) {
       this.currentState = BotState.SPAWN;
       this._traversal.interrupt(state, "dead", true);
@@ -712,14 +712,14 @@ export class StateMachineBrain extends BotBrain {
    * 7. Tricks: climbs and wall jumps toward the point the bot makes for.
    * 8. The look into open space while roaming (BotLook).
    *
-   * Each may rewrite movement, view or buttons of what the earlier ones left.
+   * Corrections and takeovers of movement check who holds it (InputClaims).
    */
   private _afterSteps(state: BotGameState, chosen: BotInput, vision: BotVision | null | undefined): BotInput {
     let input = this._nav.recoverStalledNavigation(state, chosen);
 
-    // Keep the feet clear of walls, corners and ledges in every state. Not on
-    // a verified approach to a trick, whose line is exact on purpose.
-    if (vision && !this._exactMove) {
+    // Keep the feet clear of walls, corners and ledges in every state: a
+    // correction, so not on a line held exactly.
+    if (vision && this._claims.mayCorrect("movement")) {
       if (!this._fightOff.has("steer")) input = this._steering.steer(input, state, vision);
       else if (!this._nav.onRouteLine && this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
         // The feelers, for head-to-head tests: navigation only, and not on a
@@ -728,6 +728,7 @@ export class StateMachineBrain extends BotBrain {
       }
     }
 
+    // Combat orders answer the fight and take movement whoever holds it.
     const chase = this.currentState === BotState.CHASE ? this._lastVision?.chaseTarget : null;
     if (chase && state.self.health >= 50)
       input = this._keepUpperGround(state, { position: chase.lastSeenPosition }, input);
@@ -743,7 +744,8 @@ export class StateMachineBrain extends BotBrain {
       this._readyForHeard(state, input);
     }
 
-    if (!this._suppressTraversalAutomation) {
+    // Traversal starts are takeovers: only on movement nobody holds.
+    if (this._claims.mayTakeOver("movement")) {
       const ledgeJump = this._traversal.tryStartLedgeSlideJump(input, state);
       if (ledgeJump) return ledgeJump;
       const itemSlideInput = this._traversal.tryStartItemSlideApproach(input, state);
@@ -754,7 +756,12 @@ export class StateMachineBrain extends BotBrain {
       if (strafeInput) return strafeInput;
     }
 
-    if (vision && !this._exactMove && !this._fightOff.has("steer") && !this._fightOff.has("tricks")) {
+    if (
+      vision &&
+      this._claims.mayCorrect("movement") &&
+      !this._fightOff.has("steer") &&
+      !this._fightOff.has("tricks")
+    ) {
       input = this._steering.tryTricks(state, input);
     }
     this._steering.lastJumpHeld = (input.buttons & InputButtons.JUMP) !== 0;
@@ -1998,8 +2005,8 @@ export class StateMachineBrain extends BotBrain {
     radius: number,
     watch: Vec3 | null,
   ): BotInput {
-    // These are verified walking segments, not approaches to a traversal trick.
-    this._suppressTraversalAutomation = true;
+    // A walk round the spot, steered but not swapped for a slide or a hop.
+    this._claims.hold("movement", "guard patrol", "corrections");
     const self = state.self.position;
     const look = watch ?? this._entranceToWatch(state, center);
     const lookYaw = look ? Math.atan2(look.x - self.x, look.z - self.z) : state.self.yaw;
@@ -2423,10 +2430,7 @@ export class StateMachineBrain extends BotBrain {
       cancelScript: () => {
         this._cancelScript = true;
       },
-      exactStep: () => {
-        this._suppressTraversalAutomation = true;
-        this._exactMove = true;
-      },
+      holdMovementExact: (owner) => this._claims.hold("movement", owner, "exact"),
       startRecovery: (state, stuck) => this._startRecovery(state, stuck),
     };
   }
@@ -2499,10 +2503,7 @@ export class StateMachineBrain extends BotBrain {
       dropUnreachableItemGoal: (state, target) => this._dropUnreachableItemGoal(state, target),
       tryStartLedgeSlideJump: (input, state) => this._traversal.tryStartLedgeSlideJump(input, state),
       startNavSequence: (state, step, sequenceId) => this._traversal.startNav(state, step, sequenceId),
-      exactStep: () => {
-        this._suppressTraversalAutomation = true;
-        this._exactMove = true;
-      },
+      holdMovementExact: (owner) => this._claims.hold("movement", owner, "exact"),
     };
   }
 

@@ -45,6 +45,8 @@ export interface DecisionTrace {
   health: number;
   armor: number;
   weapon: string;
+  /** Who held movement this decision (InputClaims), or null when nobody did. */
+  movementOwner: string | null;
 }
 
 /** Candidates kept per record. */

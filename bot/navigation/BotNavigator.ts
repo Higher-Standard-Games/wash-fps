@@ -65,8 +65,8 @@ export interface NavigatorHost {
   dropUnreachableItemGoal(state: BotGameState, target: Vec3): void;
   tryStartLedgeSlideJump(input: BotInput, state: BotGameState): BotInput | null;
   startNavSequence(state: BotGameState, step: NavStep, sequenceId: string): PathFollowResult | null;
-  /** This step moves exactly: no traversal automation, and the feelers stand aside. */
-  exactStep(): void;
+  /** `owner` moves exactly this decision: no correction or takeover of movement after it (InputClaims). */
+  holdMovementExact(owner: string): void;
 }
 
 export class BotNavigator {
@@ -284,7 +284,7 @@ export class BotNavigator {
       const boost = this.host.tryStartLedgeSlideJump(this.host.moveToward(state, step.to.position, urgent), state);
       if (boost) return { status: "moving", input: boost };
 
-      this.host.exactStep();
+      this.host.holdMovementExact("fall approach");
       const target = distanceToStart > 56 ? step.from.position : (probe?.landing ?? step.to.position);
       return { status: "moving", input: this.host.moveTowardPrecise(state, target) };
     }
@@ -315,7 +315,7 @@ export class BotNavigator {
 
     const distanceToEnd = vec3Length(vec3Subtract(step.to.position, state.self.position));
     if (step.requiresPreciseApproach && distanceToEnd < 256) {
-      this.host.exactStep();
+      this.host.holdMovementExact("precise approach");
       return { status: "moving", input: this.host.makePrecise(input) };
     }
 

@@ -83,8 +83,8 @@ export interface TraversalHost {
   readonly nav: BotNavigator;
   /** The script being sent ends with this decision. */
   cancelScript(): void;
-  /** This step moves exactly: no traversal automation, and the feelers stand aside. */
-  exactStep(): void;
+  /** `owner` moves exactly this decision: no correction or takeover of movement after it (InputClaims). */
+  holdMovementExact(owner: string): void;
   startRecovery(state: BotGameState, stuck?: boolean): BotInput;
 }
 
@@ -157,7 +157,7 @@ export class BotTraversal {
     const result: BotSequenceRuntimeTick | null = this.runtime.tick(this.context(state));
     if (!result) return null;
 
-    this.host.exactStep();
+    this.host.holdMovementExact(this.runtime.activeSequenceId ?? "sequence");
     this.host.nav.pathRecalcTimer = 0;
     if (result.status === "running") return result.input;
     this.host.cancelScript();

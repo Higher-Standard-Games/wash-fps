@@ -28,6 +28,8 @@ export class TraceStats {
   readonly stillByCause = new Map<string, number>();
   /** Crouch changes, by state. */
   readonly crouchChangesByState = new Map<string, number>();
+  /** Seconds alive with movement held, by holder (InputClaims). */
+  readonly movementHeldBy = new Map<string, number>();
   private alive = 0;
   private still = 0;
   private readonly lastCrouch = new Map<string, boolean>();
@@ -39,6 +41,8 @@ export class TraceStats {
       return;
     }
     this.alive += TICK_SECONDS;
+    if (trace.movementOwner)
+      this.movementHeldBy.set(trace.movementOwner, (this.movementHeldBy.get(trace.movementOwner) ?? 0) + TICK_SECONDS);
     if (trace.grounded && trace.speed < STILL_SPEED) {
       this.still += TICK_SECONDS;
       const cause = traceCause(trace);
@@ -51,7 +55,7 @@ export class TraceStats {
     this.lastCrouch.set(bot, self.isCrouching);
   }
 
-  /** Report lines: share of alive time still, its top causes, and crouch changes by state. */
+  /** Report lines: share of alive time still, its top causes, crouch changes by state, and who held movement. */
   lines(top = 8): string[] {
     const pct = (seconds: number) => `${((100 * seconds) / Math.max(1e-9, this.alive)).toFixed(1)}%`;
     const out = [`  traced still    ${pct(this.still)} of alive time; by cause:`];
@@ -62,6 +66,10 @@ export class TraceStats {
     const minutes = this.alive / 60;
     out.push(
       `  crouch changes  ${crouch.map(([state, n]) => `${state} ${(n / Math.max(1e-9, minutes)).toFixed(0)}`).join(", ") || "none"} per bot-minute`,
+    );
+    const held = [...this.movementHeldBy].sort((a, b) => b[1] - a[1]).slice(0, top);
+    out.push(
+      `  movement held   ${held.map(([owner, seconds]) => `${owner} ${pct(seconds)}`).join(", ") || "never"} of alive time`,
     );
     return out;
   }

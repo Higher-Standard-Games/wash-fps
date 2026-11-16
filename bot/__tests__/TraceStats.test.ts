@@ -25,6 +25,7 @@ function trace(overrides: Partial<DecisionTrace>): DecisionTrace {
     health: 100,
     armor: 0,
     weapon: "blade",
+    movementOwner: null,
     ...overrides,
   };
 }
