@@ -53,6 +53,8 @@ export class TeamDeathmatch extends BaseGametype {
       countdownDuration: 5, // get ready, then 3-2-1
       scoreLimit: 50, // frags to win
       timeLimit: 900, // 15 minutes
+      overtimeOnDraw: true, // a tie at the time limit plays on a minute at a time
+      overtimeDuration: 60,
       postGameDuration: 15, // post-game screen duration
       respawnDelay: 3, // seconds min before respawn input accepted
       maxRespawnDelay: 6, // seconds auto-respawn deadline

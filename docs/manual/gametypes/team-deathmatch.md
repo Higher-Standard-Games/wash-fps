@@ -13,7 +13,7 @@ The lobby's Play stage offers Duel, Amphi, FFA and S&D only. Team Deathmatch is 
 | Players | Up to 16, split across the two teams |
 | Score limit | 50 team frags; the first team to reach it wins |
 | Time limit | 15 minutes; the higher team score wins at time-up |
-| Tied at time-up | A draw |
+| Tied at time-up | Overtime: +1 minute, repeated until a team leads |
 | Warmup | Up to 2 minutes |
 | Countdown | 3 seconds |
 | Player respawn | 3 s minimum before you can respawn, 6 s automatic |

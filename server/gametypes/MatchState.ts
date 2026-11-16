@@ -852,7 +852,7 @@ export class MatchState {
               this._roundTimeExpired = true;
               break;
             }
-            // Overtime (duel): a tie at the limit never ends the match — extend
+            // Overtime (duel, team deathmatch): a tie at the limit never ends the match — extend
             // it until someone takes the lead.
             if (this.config.overtimeOnDraw && this.isTiedAtTop()) {
               const extension = this.config.overtimeDuration ?? 60;

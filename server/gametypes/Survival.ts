@@ -72,6 +72,8 @@ export class Survival extends TeamDeathmatch {
       // No frag limit: the clock is the goal
       scoreLimit: 0,
       timeLimit: this.rules.seconds,
+      // Lasting is the win, whatever the frags, so a tie is never played on
+      overtimeOnDraw: false,
       // A robot let back in comes back at once
       respawnDelay: 0.5,
       maxRespawnDelay: 1,
