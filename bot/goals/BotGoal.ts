@@ -83,3 +83,11 @@ export function droppedItemGoalId(entityId: string): string {
 export function directiveGoalId(directiveId: string): string {
   return `objective:${directiveId}`;
 }
+
+/** An item goal, and an item worth taking on the way to it. */
+export interface ItemGoalChoice {
+  goal: BotGoal;
+  stopover: BotGoal | null;
+  /** The arbiter's score for `goal` (GoalArbiter: gate × attraction × discount). */
+  desire: number;
+}

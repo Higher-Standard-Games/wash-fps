@@ -900,7 +900,9 @@ describe("StateMachineBrain site patrol", () => {
         isWalkable: (from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }) => boolean;
         canSee: () => boolean;
       };
-      _navigateGoal: (state: BotGameState, goal: import("../goals/BotGoal").BotGoal, urgent: boolean) => BotInput;
+      _orders: {
+        navigateGoal: (state: BotGameState, goal: import("../goals/BotGoal").BotGoal, urgent: boolean) => BotInput;
+      };
       _life: { sitePatrol: { target: { x: number; y: number; z: number } } | null };
     };
     h._navGraph = graph;
@@ -924,7 +926,7 @@ describe("StateMachineBrain site patrol", () => {
   }
   it("patrols inside the site without stopping, choosing the next point on arrival", () => {
     const { h, state, goal } = harness();
-    const walking = h._navigateGoal(state, goal, false);
+    const walking = h._orders.navigateGoal(state, goal, false);
     expect(walking.direction.z).toBe(1);
     expect(walking.buttons & (InputButtons.JUMP | InputButtons.CROUCH)).toBe(0);
     expect(walking.buttons & InputButtons.SPRINT).not.toBe(0);
@@ -933,7 +935,7 @@ describe("StateMachineBrain site patrol", () => {
     state.self.position = first;
     state.tick = 1;
     // Arrived: on to another point at once, still running
-    const next = h._navigateGoal(state, goal, false);
+    const next = h._orders.navigateGoal(state, goal, false);
     expect(next.buttons & InputButtons.FORWARD).not.toBe(0);
     expect(Math.hypot(h._life.sitePatrol!.target.x - first.x, h._life.sitePatrol!.target.z - first.z)).toBeGreaterThan(
       56,
@@ -942,17 +944,17 @@ describe("StateMachineBrain site patrol", () => {
   it("strafes when no safe walk exists, rather than walking through a wall or pit or standing", () => {
     const { h, state, goal } = harness();
     h._lastBotVision.isWalkable = () => false;
-    const input = h._navigateGoal(state, goal, false);
+    const input = h._orders.navigateGoal(state, goal, false);
     expect(Math.abs(input.direction.x)).toBe(1);
     expect(input.buttons & (InputButtons.LEFT | InputButtons.RIGHT)).not.toBe(0);
     expect(h._life.sitePatrol).toBeNull();
   });
   it("stops patrolling when the order changes to planting or defusing", () => {
     const { h, state, goal } = harness();
-    h._navigateGoal(state, goal, false);
+    h._orders.navigateGoal(state, goal, false);
     goal.directive!.kind = "move_to";
     goal.kind = "move_to";
-    expect(h._navigateGoal(state, goal, true).buttons).toBe(0);
+    expect(h._orders.navigateGoal(state, goal, true).buttons).toBe(0);
     expect(h._life.sitePatrol).toBeNull();
   });
 });

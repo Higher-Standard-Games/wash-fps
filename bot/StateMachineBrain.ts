@@ -13,16 +13,12 @@
  * prediction skill, and other human-feel parameters.
  */
 
-import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
-import { scaledBodyHeight } from "../shared/BodyScale";
 import { isBotName } from "../shared/bot/BotNames";
 import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
-import { wrapAngle } from "./BotAimController";
 import { BotBlockedMove } from "./BotBlockedMove";
 import { BotBrain, type BotInput, BotState, type BrainMatchReport, travelYaw } from "./BotBrain";
-import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
 import {
   type BotDifficulty,
   defaultGoalArbiterMode,
@@ -30,22 +26,18 @@ import {
   HIT_ATTENTION_MS,
   InputButtons,
 } from "./BotConfig";
-import { BotCoverPeek } from "./BotCoverPeek";
-import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
-import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
+import type { BotGameState, Vec3 } from "./BotGameState";
+import { vec3Distance, vec3Length, vec3Subtract } from "./BotGameState";
 import { BotLife } from "./BotLife";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
-import { PHYSICS } from "./BotMovementProfile";
 import type { BotNavGraph } from "./BotNavGraph";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
 import { BotTerritory } from "./BotTerritory";
-import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
-import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
-import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
+import type { BotVision, VisionResult } from "./BotVision";
+import { getWeaponProfile } from "./BotWeaponProfile";
 import { type DecisionTrace, TRACED_CANDIDATES } from "./DecisionTrace";
-import type { BotGoal } from "./goals/BotGoal";
+import type { BotGoal, ItemGoalChoice } from "./goals/BotGoal";
 import { isMajorItem } from "./goals/considerations/ItemFacts";
-import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
 import { respawnTickOf } from "./goals/ItemGoalSource";
 import { InputClaims } from "./InputClaims";
@@ -53,14 +45,11 @@ import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
 import { inHarmfulLiquid, liquidEscapeTarget } from "./LiquidEscape";
 import { BotSteering, type SteeringHost } from "./movement/BotSteering";
-import {
-  BotNavigator,
-  type NavigatorHost,
-  PATH_ARRIVED_THRESHOLD,
-  PATH_RECALC_INTERVAL,
-} from "./navigation/BotNavigator";
+import { BotNavigator, type NavigatorHost, PATH_RECALC_INTERVAL } from "./navigation/BotNavigator";
 import { BotTraversal, PICKUP_FAILURE_COOLDOWN_TICKS, type TraversalHost } from "./navigation/BotTraversal";
-import { canLunge } from "./sequences/SlideBladeSequence";
+import { BotOrders, type OrdersHost } from "./orders/BotOrders";
+import { BotFight, type FightHost } from "./states/BotFight";
+import { BotRoam, PICKUP_SEEK_RANGE, type RoamHost } from "./states/BotRoam";
 import { MatchRead } from "./strategy/MatchRead";
 import { OpponentModel } from "./strategy/OpponentModel";
 import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy, type StrategyId } from "./strategy/Strategist";
@@ -79,39 +68,8 @@ function scaleProfile(base: BotWeightProfile, scale: Partial<BotWeightProfile>):
 const LOW_HEALTH_THRESHOLD = 40;
 const RETREAT_HEALTH_THRESHOLD = 25;
 const FIGHT_RANGE = 2000;
-/** A chased enemy seen this recently is watched for rather than the route ahead. */
-const CHASE_WATCH_TICKS = Math.round(1.5 * TICK_RATE);
-/** Furthest the view turns from where the bot runs to watch a lost enemy. */
-const CHASE_WATCH_MAX_OFF_TRAVEL = (110 * Math.PI) / 180;
-const PICKUP_SEEK_RANGE = 1500;
-/** A bot timing an item waits this close to it, inside its pickup reach. */
-const TIMED_ITEM_HOLD_RADIUS = 40;
-/** How long a bot waiting at a timed item watches one way in. */
-const ENTRANCE_WATCH_TICKS = 375;
-/** A charged blast is let go within this of the aim (radians)… */
-const CHARGE_RELEASE_CONE = (12 * Math.PI) / 180;
-/** …or this many ticks after its planned release, on the aim or not. */
-const CHARGE_AIM_GRACE_TICKS = Math.round(0.5 * TICK_RATE);
 /** A teammate's call of enemies is worth hunting this long, ticks. */
 const TEAM_SIGHTING_TICKS = 6 * TICK_RATE;
-/** A blade charge is held out of a fight at most this long after it started. */
-const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
-/** A held watch sweeps this far either side of the way in, radians, at this rate. */
-const HOLD_SWEEP = 0.3;
-/** A guard picks its next patrol point once this close to the last, units. */
-const GUARD_POINT_REACHED = 56;
-/** Guard patrol points lie this far out from the spot, as shares of the order's radius. */
-const GUARD_RINGS = [0.45, 0.85] as const;
-/** Directions round the spot a guard tries for patrol points. */
-const GUARD_DIRECTIONS = 10;
-/** Patrol points are kept within this of a guard's radius, units, however large the order. */
-const GUARD_MIN_RADIUS = 96;
-const GUARD_MAX_RADIUS = 420;
-/** With nowhere to walk, a guard strafes and turns the way back this often, ticks. */
-const GUARD_STRAFE_TICKS = 90;
-/** Eye height for a guard's check that a patrol point sees the way in. */
-const GUARD_EYE = 40;
-const HOLD_SWEEP_RATE = 0.9;
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
 /** Blocked in a fight, the bot runs the open way this long before the fight steers again. */
 const UNSTICK_TICKS = Math.round(0.5 * 125);
@@ -124,69 +82,15 @@ const BLOCKED_SPEED = 60;
 /** An enemy this close is what the bot is pressing against, not a wall. */
 const ENEMY_BODY_RANGE = 72;
 const MOVE_KEYS = InputButtons.FORWARD | InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT;
-/** The slide's own cooldown plus its length, in server ticks, from the start of the last one. */
-const SLIDE_COOLDOWN_TICKS = Math.ceil(((PHYSICS.SLIDE_COOLDOWN + PHYSICS.SLIDE_DURATION) / 1000) * TICK_RATE);
-/** A lunge chance passed up is not rolled for again this soon. */
-const LUNGE_REROLL_TICKS = 125;
-/** Too hurt to dive in with a blade. */
-const LUNGE_MIN_HEALTH = 30;
-/** How often a bot with a splash weapon looks for a ledge to fight from. */
-const HIGH_GROUND_SEARCH_TICKS = 250;
-/** Cover is fought from at this range and further: closer, the fight is too quick for it. */
-const COVER_MIN_RANGE = 350;
 
 /** Fight habits a head-to-head test can turn off (`BotOptions.fightOff`). */
 export type FightHabit = "cover" | "height" | "unstick" | "itemcheck" | "holster" | "steer" | "tricks";
-/** A heard enemy this close gets the gun for its distance readied, held this long. */
-const READY_RANGE = 1500;
-const READY_TICKS = 250;
-/** Out of a fight, the gun put up in place of the blade is the best one at this range. */
-const HOLSTER_RANGE = 800;
-/** How far off a wild shot goes, and how far an item may be to glance at. */
-const WILD_SHOT_OFFSET = (5 * Math.PI) / 180;
-const ITEM_GLANCE_RANGE = 1200;
-/** Odds of taking a lunge chance, by dodgeSkill: never below 0.35 (Easy), 25% Medium, 60% Hard, 85% Insane. */
-const LUNGE_CHANCE_POINTS: readonly (readonly [number, number])[] = [
-  [0.35, 0],
-  [0.4, 0.25],
-  [0.7, 0.6],
-  [0.9, 0.85],
-];
-
-export function lungeChance(dodgeSkill: number): number {
-  const points = LUNGE_CHANCE_POINTS;
-  if (dodgeSkill < points[0][0]) return 0;
-  for (let i = 1; i < points.length; i++) {
-    const [x1, y1] = points[i];
-    if (dodgeSkill <= x1) {
-      const [x0, y0] = points[i - 1];
-      return y0 + ((y1 - y0) * (dodgeSkill - x0)) / (x1 - x0);
-    }
-  }
-  return points[points.length - 1][1];
-}
-const HUNT_DIRECTION_CHANGE_INTERVAL = 180; // Change hunt direction every ~3 sec at 60Hz
-
-const MELEE_RANGE = 150;
-const CLOSE_RANGE = 400;
 
 // Feeler ray constants
 
 // Fading and escaping (see _shouldFade, _escapePoint)
 /** Damage taken in a fight that makes a fading strategy leave it. */
 const FADE_DAMAGE = 40;
-/** An escape point lies this far away, units. */
-const ESCAPE_MIN = 192;
-const ESCAPE_MAX = 900;
-/** ... and no more toward the threat than this (cosine). */
-const ESCAPE_MAX_TOWARD = 0.2;
-/** Reached when this close, units; given up after ESCAPE_HOLD_TICKS. */
-const ESCAPE_REACHED = 64;
-const ESCAPE_HOLD_TICKS = 375;
-/** Nearest candidate nodes checked for sight and route cost. */
-const ESCAPE_CANDIDATES = 24;
-/** With no way out found, look again after this long. */
-const ESCAPE_RETRY_TICKS = 60;
 
 // Habits (see _contested)
 /** Match sense from which a bot contests the items its opponent keeps taking. */
@@ -214,17 +118,6 @@ const ITEM_CIRCLE_TICKS = 125;
 /** A bot that needs an item chases a heard enemy only this close: round the next corner. */
 const SOUND_DIVERT_DISTANCE = 384;
 
-/** An item goal, and an item worth taking on the way to it. */
-interface ItemGoalChoice {
-  goal: BotGoal;
-  stopover: BotGoal | null;
-  /** The arbiter's score for `goal` (GoalArbiter: gate × attraction × discount). */
-  desire: number;
-}
-
-/** RETREAT wants healing, not shopping — see ItemGoalPlannerOptions.typeFilter. */
-const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
-
 export class StateMachineBrain extends BotBrain {
   // ── Internal state ────────────────────────────────────────────────
   /** This life's route, goals and plans; a new one at each death (BotLife). */
@@ -237,24 +130,19 @@ export class StateMachineBrain extends BotBrain {
   private readonly _steering = new BotSteering(this._steeringHost());
   /** Glances while roaming and the calm look (view/BotLook). */
   private readonly _look = new BotLook(this._lookHost());
-  private _huntYaw: number = 0;
-  private _huntTimer: number = 0;
+  /** The CHASE, RETREAT, ITEM_RUN and HUNT states (states/BotRoam). */
+  private readonly _roam = new BotRoam(this._roamHost());
+  /** The FIGHT and DODGE states, aim, charged shots and the fight's moves (states/BotFight). */
+  private readonly _fight = new BotFight(this._fightHost());
+  /** The gametype's orders: the goal they set, guard walks and the leash (orders/BotOrders). */
+  private readonly _orders = new BotOrders(this._ordersHost());
 
   // Slide-blade lunge: when this bot last slid, and when it may roll for a lunge again
-  private _lastSlideTick = Number.NEGATIVE_INFINITY;
-  private _lungeRollAfterTick = 0;
-  private readonly _combatMovement = new BotCombatMovement();
-  private readonly _coverPeek: BotCoverPeek;
-  /** When the bot last fired the weapon out, for peeking between shots. */
-  private _firedTick = Number.NEGATIVE_INFINITY;
   /** Fight habits turned off for head-to-head tests (`BotOptions.fightOff`). */
   private _fightOff: ReadonlySet<FightHabit> = new Set();
-  private readonly _weaponCombos = new BotWeaponCombos();
   private readonly _mood = new BotMood();
   /** Kills and deaths since the last `takeMoodEvents`, for chat. */
   private _moodEvents: MoodEvent[] = [];
-  private _readyRollTick = 0;
-  private _highGroundSearchTick = 0;
 
   // Movement variety
   private _strafeDirection: number = 1; // 1 or -1
@@ -271,7 +159,6 @@ export class StateMachineBrain extends BotBrain {
   private _strategy: Strategy = STRATEGIES.standard;
   /** The map and gametype whose baseline priors the strategist has. */
   private _priorsFor: string | null = null;
-  private _escapeRetryTick = 0;
   /** The opponent's habits in this match (strategy/OpponentModel.ts). */
   private readonly _opponents = new OpponentModel();
   /** A test bot's fixation: it goes for every item of this kind (`BotOptions.habitItem`). */
@@ -290,8 +177,6 @@ export class StateMachineBrain extends BotBrain {
   private _lastTrace: DecisionTrace | null = null;
 
   // Random look-around for human-feel
-  private _lookAroundTimer: number = 0;
-  private _lookAroundYaw: number = 0;
 
   // NavGraph pathfinding
   private _navGraph: BotNavGraph | null = null;
@@ -329,11 +214,9 @@ export class StateMachineBrain extends BotBrain {
   constructor(difficulty: BotDifficulty, goalArbiterMode: GoalArbiterMode = defaultGoalArbiterMode()) {
     super(difficulty);
     this._goalArbiterMode = goalArbiterMode;
-    this._coverPeek = new BotCoverPeek(difficulty.dodgeSkill);
     this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
     // mistakeRate finally does something: an occasional runner-up pick.
     this._itemGoalPlanner = new ItemGoalPlanner(difficulty.mistakeRate);
-    this._huntYaw = Math.random() * Math.PI * 2;
   }
 
   // ── Main Decision Loop ────────────────────────────────────────────
@@ -571,7 +454,7 @@ export class StateMachineBrain extends BotBrain {
       state,
       this._turnFromBlock(state, this._decide(state, vision, visionResult, navGraph)),
     );
-    this._carryCharge(state, input);
+    this._fight.carryCharge(state, input);
     if (this._tracing) this._lastTrace = this._trace(state);
     this._look.calm(state, input);
     return this._cancelScript ? { ...input, cancelScript: true } : input;
@@ -612,7 +495,7 @@ export class StateMachineBrain extends BotBrain {
       return this._noInput(state);
     }
 
-    const mandatory = this._selectMandatoryGoal(state);
+    const mandatory = this._orders.selectMandatoryGoal(state);
     if (mandatory?.id !== this._life.mandatoryGoal?.id) {
       this._life.currentPath = null;
       this._life.pathTarget = null;
@@ -673,25 +556,25 @@ export class StateMachineBrain extends BotBrain {
     let input: BotInput;
     switch (this.currentState) {
       case BotState.FIGHT:
-        input = this._executeFight(state);
+        input = this._fight.fight(state);
         break;
       case BotState.CHASE:
-        input = this._executeChase(state);
+        input = this._roam.chase(state);
         break;
       case BotState.DODGE:
-        input = this._executeDodge(state);
+        input = this._fight.dodge(state);
         break;
       case BotState.RETREAT:
-        input = this._executeRetreat(state);
+        input = this._roam.retreat(state);
         break;
       case BotState.ITEM_RUN:
-        input = this._executeItemRun(state);
+        input = this._roam.itemRun(state);
         break;
       case BotState.HUNT:
-        input = this._executeHunt(state);
+        input = this._roam.hunt(state);
         break;
       default:
-        input = this._executeHunt(state);
+        input = this._roam.hunt(state);
         break;
     }
 
@@ -731,17 +614,17 @@ export class StateMachineBrain extends BotBrain {
     // Combat orders answer the fight and take movement whoever holds it.
     const chase = this.currentState === BotState.CHASE ? this._lastVision?.chaseTarget : null;
     if (chase && state.self.health >= 50)
-      input = this._keepUpperGround(state, { position: chase.lastSeenPosition }, input);
+      input = this._fight.keepUpperGround(state, { position: chase.lastSeenPosition }, input);
     if (
       this.currentState === BotState.FIGHT ||
       this.currentState === BotState.CHASE ||
       this.currentState === BotState.DODGE
     ) {
-      input = this._applyLeash(state, input);
+      input = this._orders.applyLeash(state, input);
     }
 
     if (this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
-      this._readyForHeard(state, input);
+      this._fight.readyForHeard(state, input);
     }
 
     // Traversal starts are takeovers: only on movement nobody holds.
@@ -818,7 +701,7 @@ export class StateMachineBrain extends BotBrain {
     }
 
     // Ducked into cover between shots: still the same fight.
-    if (this.currentState === BotState.FIGHT && this._coverPeek.holding(state.tick)) return BotState.FIGHT;
+    if (this.currentState === BotState.FIGHT && this._fight.coverPeek.holding(state.tick)) return BotState.FIGHT;
 
     // Priority 2.5: Lost sight of enemy but tracking them → chase!
     // ...unless this fight's mistake is to forget them the moment they are gone.
@@ -828,7 +711,7 @@ export class StateMachineBrain extends BotBrain {
     // the gap crosses the limit.
     const chaseTarget = this._lastVision?.chaseTarget;
     // A strategy that wants no fight lets an enemy out of sight go.
-    const leash = this._leashOrder(state);
+    const leash = this._orders.leashOrder(state);
     const pastLeash =
       chaseTarget !== null &&
       chaseTarget !== undefined &&
@@ -873,240 +756,6 @@ export class StateMachineBrain extends BotBrain {
 
   // ── FIGHT State ───────────────────────────────────────────────────
 
-  /**
-   * Maybe lunge at `enemy` with a crouch-slide and the blade. Each chance is
-   * rolled once (then not again for a second), at odds from dodgeSkill: never
-   * on Easy, most of the time on Insane. The slide's own cooldown is kept here,
-   * from when this bot last stopped sliding.
-   */
-  private _tryStartSlideBlade(state: BotGameState, enemy: VisiblePlayer): BotInput | null {
-    if (state.self.isSliding) this._lastSlideTick = state.tick;
-    if (this._traversal.runtime.isActive || state.tick < this._lungeRollAfterTick) return null;
-    if (state.tick - this._lastSlideTick < SLIDE_COOLDOWN_TICKS) return null;
-    if (state.self.health < LUNGE_MIN_HEALTH) return null;
-    const context = { ...this._traversal.context(state, null), combatTarget: enemy };
-    if (!canLunge(context, enemy)) return null;
-    this._lungeRollAfterTick = state.tick + LUNGE_REROLL_TICKS;
-    if (Math.random() >= lungeChance(this.difficulty.dodgeSkill)) return null;
-    if (!this._traversal.runtime.start("combat_slide_blade", context)) return null;
-    return this._traversal.tick(state);
-  }
-
-  private _executeFight(state: BotGameState): BotInput {
-    // Find strongest enemy (from vision or fallback)
-    const enemy = this._lastVision?.visibleEnemies[0]?.player ?? state.getNearestEnemy();
-    if (!enemy) {
-      return this._executeHunt(state);
-    }
-
-    const lunge = this._tryStartSlideBlade(state, enemy);
-    if (lunge) return lunge;
-
-    // Select best weapon for distance (profile-based). The server switches before
-    // firing, so combat behavior can use the selected profile immediately.
-    let { slot: weaponSlot, profile: selectedProfile } = selectBestWeapon(
-      state.self.weapons,
-      state.self.ammo,
-      state.self.currentWeapon,
-      enemy.distance,
-    );
-    let selectedWeaponId = weaponSlot > 0 ? state.self.weapons[weaponSlot - 1] : state.self.currentWeapon;
-    let currentProfile = selectedProfile.id === "unknown" ? getWeaponProfile(selectedWeaponId) : selectedProfile;
-
-    const mistake = this._mood.mistake(state.tick);
-    if (mistake === "wrong_weapon" && state.self.currentWeapon) {
-      // Fights on with whatever was out
-      weaponSlot = 0;
-      selectedWeaponId = state.self.currentWeapon;
-      currentProfile = getWeaponProfile(selectedWeaponId);
-    }
-
-    // A combo (rocket into rail, riotgun or blade; a rail between plasma) overrides the distance pick
-    const combo =
-      mistake === "wrong_weapon"
-        ? null
-        : this._weaponCombos.choose(
-            state,
-            enemy,
-            this.difficulty.predictionSkill,
-            selectedWeaponId,
-            this._enemyEstimate(enemy.entityId),
-          );
-    if (combo) {
-      weaponSlot = slotFor(state, combo);
-      selectedWeaponId = combo;
-      currentProfile = getWeaponProfile(combo);
-    }
-
-    // Aim at enemy - use projectile prediction if needed.
-    const useProjectileAim =
-      (currentProfile.isProjectile || currentProfile.hasChargedProjectile) && currentProfile.projectileSpeed > 0;
-    let aim = useProjectileAim
-      ? this._aimAtTargetWithLead(state, enemy, currentProfile)
-      : this._aimAtTarget(state, enemy);
-
-    // Strafe while fighting: rhythm, dodges and hops from BotCombatMovement
-    const moves = this._combatMovement.step(state, this.aimDifficulty, enemy.distance);
-    let strafeInput = moves.strafe;
-    // At range, from the edge of cover: out to shoot, back while reloading.
-    const enemyInSight = this._lastVision
-      ? this._lastVision.visibleEnemies.some((e) => e.player.playerId === enemy.playerId)
-      : true;
-    const peek = this._peekFromCover(state, enemy, currentProfile, selectedWeaponId, aim.yaw, enemyInSight);
-    if (peek !== null && !this._combatMovement.dodging(state.tick)) strafeInput = peek;
-    const peeking = peek !== null;
-    if (strafeInput !== 0) this._strafeDirection = strafeInput;
-
-    // Build buttons
-    let buttons = 0;
-    // Out of sight in cover there is nothing to shoot at, and a rocket into the wall hits the bot.
-    let wantsFire = this._hasAmmoForWeapon(state, selectedWeaponId) && (enemyInSight || !peeking);
-
-    if (mistake === "wild_shot") {
-      // Fires before the aim is on: a few degrees off to one side
-      const side = this._mood.mistakeTick % 2 === 0 ? 1 : -1;
-      aim = { ...aim, yaw: aim.yaw + side * WILD_SHOT_OFFSET };
-    } else if (mistake === "item_glance") {
-      const item = state.getNearestPickup(ITEM_GLANCE_RANGE);
-      if (item) {
-        const dx = item.position.x - state.self.position.x;
-        const dz = item.position.z - state.self.position.z;
-        aim = { yaw: Math.atan2(dx, dz), pitch: 0 };
-        wantsFire = false;
-      }
-    }
-
-    // Weapon-aware combat behavior
-    if (currentProfile.isMelee) {
-      const chargeFire = this._updateChargedProjectileFire(
-        state,
-        enemy,
-        selectedWeaponId,
-        currentProfile,
-        aim,
-        wantsFire,
-      );
-
-      if (chargeFire.holdAltFire) {
-        buttons |= InputButtons.ALT_FIRE;
-      }
-
-      // Close range: swing. Mid range: keep pressure while charging/releasing the blade blast.
-      if (enemy.distance < MELEE_RANGE && wantsFire && !chargeFire.holdAltFire) {
-        buttons |= InputButtons.FIRE;
-      }
-
-      buttons |= InputButtons.FORWARD;
-      buttons |= InputButtons.SPRINT;
-    } else {
-      this._clearChargedProjectileFire();
-
-      // ADS whenever it tightens the shot; firing walks anyway, so aiming costs no speed.
-      // A weapon whose aim takes time to settle holds fire until the server
-      // counts the shot as aimed, which starts once that weapon is up.
-      // Only with that weapon up: alt-fire pressed while the blade is still
-      // out, mid-switch, starts a blade charge the switch then cancels.
-      const aimsDownSights =
-        currentProfile.aimsDownSights && wantsFire && state.self.currentWeapon === selectedWeaponId;
-      if (aimsDownSights) buttons |= InputButtons.ALT_FIRE;
-      if (!aimsDownSights || state.self.currentWeapon !== selectedWeaponId) this._life.adsSinceTick = null;
-      else this._life.adsSinceTick ??= state.tick;
-      const aimReady =
-        currentProfile.adsReadyTicks === 0 ||
-        (this._life.adsSinceTick !== null && state.tick - this._life.adsSinceTick >= currentProfile.adsReadyTicks);
-
-      // Fire
-      if (wantsFire && aimReady) {
-        buttons |= InputButtons.FIRE;
-      }
-
-      // Movement based on range
-      if (enemy.distance > CLOSE_RANGE) {
-        buttons |= InputButtons.FORWARD; // Close distance
-      } else if (enemy.distance < MELEE_RANGE) {
-        buttons |= InputButtons.BACK; // Too close for ranged, back up
-      }
-
-      // Back up from splash weapons at close range (avoid self-damage)
-      if (currentProfile.hasSplash && enemy.distance < 250) {
-        buttons |= InputButtons.BACK;
-        buttons &= ~InputButtons.FORWARD;
-      }
-    }
-
-    // Always sprint - arena FPS players strafe-run by default
-    buttons |= InputButtons.SPRINT;
-
-    if (strafeInput > 0) buttons |= InputButtons.RIGHT;
-    else if (strafeInput < 0) buttons |= InputButtons.LEFT;
-    if (moves.jump) buttons |= InputButtons.JUMP;
-    if (moves.crouch) buttons |= InputButtons.CROUCH;
-
-    if (wantsFire && (buttons & InputButtons.FIRE) !== 0 && state.self.currentWeapon === selectedWeaponId) {
-      if (state.tick - this._firedTick >= currentProfile.fireIntervalTicks) this._firedTick = state.tick;
-    }
-    // Using cover, the bot keeps its distance: walking in leaves the cover behind.
-    if (peeking) buttons &= ~(InputButtons.FORWARD | InputButtons.BACK);
-
-    // Movement direction
-    let forwardZ = 0;
-    if (currentProfile.isMelee) {
-      forwardZ = 1; // Always rush forward with melee
-    } else if (enemy.distance > CLOSE_RANGE) {
-      forwardZ = 1;
-    } else if (enemy.distance < MELEE_RANGE || (currentProfile.hasSplash && enemy.distance < 250)) {
-      forwardZ = -1;
-    }
-    if (peeking) forwardZ = 0;
-    let strafeX = peeking ? strafeInput : strafeInput * 0.5;
-
-    // With a splash weapon, take a ledge above the enemy when one is close
-    const ledge = currentProfile.hasSplash && !peeking ? this._highGround(state, enemy) : null;
-    if (ledge) {
-      const towardYaw = Math.atan2(ledge.x - state.self.position.x, ledge.z - state.self.position.z);
-      const off = towardYaw - aim.yaw;
-      forwardZ = Math.cos(off);
-      strafeX = Math.sin(off);
-      buttons &= ~(InputButtons.FORWARD | InputButtons.BACK);
-      buttons |= forwardZ >= 0 ? InputButtons.FORWARD : InputButtons.BACK;
-    }
-
-    return this._keepUpperGround(state, enemy, {
-      direction: { x: strafeX, y: 0, z: forwardZ },
-      pitch: aim.pitch,
-      yaw: aim.yaw,
-      buttons,
-      weaponSlot,
-    });
-  }
-
-  private _keepUpperGround(state: BotGameState, enemy: Pick<VisiblePlayer, "position">, input: BotInput): BotInput {
-    const vision = this._lastBotVision;
-    const self = state.self.position;
-    if (
-      !vision ||
-      !state.self.isGrounded ||
-      (this._fightOff.has("height") && state.matchState.gametypeName.toLowerCase() !== "duel") ||
-      self.y - enemy.position.y < 64
-    )
-      return input;
-    const heading = travelYaw(input) + Math.atan2(input.direction.x, input.direction.z);
-    for (const turn of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
-      const yaw = heading + turn;
-      const target = { x: self.x + Math.sin(yaw) * 96, y: self.y, z: self.z + Math.cos(yaw) * 96 };
-      if (!vision.isWalkable(self, target)) continue;
-      const floor = vision.collisionWorld.trace(target, { ...target, y: target.y - 64 });
-      if (!floor.hit || floor.fraction >= 1) continue;
-      if (turn === 0) return input;
-      input.moveYaw = yaw;
-      input.direction = { x: 0, y: 0, z: 1 };
-      input.buttons &= ~(InputButtons.LEFT | InputButtons.RIGHT | InputButtons.BACK);
-      input.buttons |= InputButtons.FORWARD | InputButtons.SPRINT;
-      return input;
-    }
-    return input;
-  }
-
   override get aimDifficulty(): BotDifficulty {
     const difficulty = this._mood.aimDifficulty(this.difficulty);
     return this._leadReactionDelayMs
@@ -1130,317 +779,9 @@ export class StateMachineBrain extends BotBrain {
     return events;
   }
 
-  /**
-   * The strafe that fights from cover at range (BotCoverPeek), or null to
-   * fight in the open: close in, with the blade, or with the habit off.
-   */
-  private _peekFromCover(
-    state: BotGameState,
-    enemy: VisiblePlayer,
-    profile: WeaponProfile,
-    weaponId: string,
-    yaw: number,
-    inSight: boolean,
-  ): -1 | 0 | 1 | null {
-    const vision = this._lastBotVision;
-    if (
-      !vision ||
-      this._fightOff.has("cover") ||
-      profile.isMelee ||
-      enemy.distance < COVER_MIN_RANGE ||
-      !state.self.isGrounded ||
-      state.self.currentWeapon !== weaponId
-    ) {
-      this._coverPeek.reset();
-      return null;
-    }
-    const self = state.self.position;
-    const enemyEye = { x: enemy.position.x, y: enemy.position.y + DEFAULT_VIEWHEIGHT, z: enemy.position.z };
-    return this._coverPeek.step({
-      tick: state.tick,
-      self,
-      yaw,
-      hidden: (at) => !vision.canSee({ x: at.x, y: at.y + DEFAULT_VIEWHEIGHT, z: at.z }, enemyEye),
-      walkable: (to) => vision.isWalkable(self, to),
-      refireTicks: profile.fireIntervalTicks,
-      firedTick: this._firedTick,
-      visible: inSight,
-    });
-  }
-
-  /**
-   * A ledge to fight from, looked for every two seconds while the bot has a
-   * splash weapon and is not yet above the enemy. Dropped once reached.
-   */
-  private _highGround(state: BotGameState, enemy: VisiblePlayer): Vec3 | null {
-    const self = state.self.position;
-    if (
-      this._life.highGroundSpot &&
-      Math.hypot(this._life.highGroundSpot.x - self.x, this._life.highGroundSpot.z - self.z) < 48
-    ) {
-      this._life.highGroundSpot = null;
-    }
-    if (state.tick >= this._highGroundSearchTick) {
-      this._highGroundSearchTick = state.tick + HIGH_GROUND_SEARCH_TICKS;
-      const vision = this._lastBotVision;
-      this._life.highGroundSpot =
-        vision && this._navGraph && enemy.distance <= 900 && Math.random() < this.difficulty.dodgeSkill
-          ? findHighGround(this._navGraph.nodes, self, enemy.position, (from, to) => vision.canSee(from, to))
-          : null;
-    }
-    return this._life.highGroundSpot;
-  }
-
-  /**
-   * Out of a fight, with an enemy heard close but not seen, get out the gun for
-   * the distance they were heard at, so it is ready when they come round the
-   * corner. Rolled every two seconds at `predictionSkill` odds.
-   */
-  private _readyForHeard(state: BotGameState, input: BotInput): void {
-    if (
-      this._life.readyWeapon &&
-      (state.tick >= this._life.readyWeapon.until || !has(state, this._life.readyWeapon.weapon))
-    ) {
-      this._life.readyWeapon = null;
-    }
-    const heard = state.heardEnemies.reduce<VisiblePlayer | null>(
-      (near, enemy) => (!near || enemy.distance < near.distance ? enemy : near),
-      null,
-    );
-    if (!this._life.readyWeapon && heard && heard.distance <= READY_RANGE && state.tick >= this._readyRollTick) {
-      this._readyRollTick = state.tick + READY_TICKS;
-      if (Math.random() < this.difficulty.predictionSkill) {
-        const { slot } = selectBestWeapon(
-          state.self.weapons,
-          state.self.ammo,
-          state.self.currentWeapon,
-          heard.distance,
-        );
-        const weapon = slot > 0 ? state.self.weapons[slot - 1] : state.self.currentWeapon;
-        if (weapon) this._life.readyWeapon = { weapon, until: state.tick + READY_TICKS };
-      }
-    }
-    if (this._life.readyWeapon && (input.weaponSlot ?? 0) === 0)
-      input.weaponSlot = slotFor(state, this._life.readyWeapon.weapon);
-    // Out of a fight, the blade goes away for a gun: whoever comes round the
-    // next corner is more likely at mid range than in reach of a swing.
-    if (
-      (input.weaponSlot ?? 0) === 0 &&
-      state.self.currentWeapon === "blade" &&
-      this._life.chargeStartTick === null &&
-      !this._fightOff.has("holster")
-    ) {
-      const { slot } = selectBestWeapon(state.self.weapons, state.self.ammo, state.self.currentWeapon, HOLSTER_RANGE);
-      const weapon = slot > 0 ? state.self.weapons[slot - 1] : undefined;
-      if (weapon && weapon !== "blade") input.weaponSlot = slot;
-    }
-  }
-
-  private _hasAmmoForWeapon(state: BotGameState, weaponId: string): boolean {
-    if (!weaponId) return true;
-    const ammo = state.self.ammo[weaponId];
-    return ammo === undefined || ammo > 0;
-  }
-
-  private _updateChargedProjectileFire(
-    state: BotGameState,
-    enemy: VisiblePlayer,
-    weaponId: string,
-    profile: WeaponProfile,
-    aim: { yaw: number; pitch: number },
-    wantsFire: boolean,
-  ): { holdAltFire: boolean } {
-    if (!profile.hasChargedProjectile || !weaponId || enemy.distance < MELEE_RANGE) {
-      this._clearChargedProjectileFire();
-      return { holdAltFire: false };
-    }
-
-    // If we are switching to this weapon, let the server confirm the switch before
-    // starting charge state. This keeps the cached 125Hz input loop from charging
-    // an old weapon for one snapshot interval.
-    if (state.self.currentWeapon && weaponId !== state.self.currentWeapon) {
-      this._clearChargedProjectileFire();
-      return { holdAltFire: false };
-    }
-
-    const targetChanged = this._life.chargeTargetId !== enemy.playerId;
-    const weaponChanged = this._life.chargeWeaponId !== weaponId;
-    if (
-      targetChanged ||
-      weaponChanged ||
-      this._life.chargeStartTick === null ||
-      this._life.chargeReleaseTick === null
-    ) {
-      // A charge starts only when the bot means to fire; once started it is
-      // held through a moment's hesitation, because letting go before the
-      // minimum cancels it on the server.
-      if (!wantsFire) {
-        this._clearChargedProjectileFire();
-        return { holdAltFire: false };
-      }
-      this._life.chargeWeaponId = weaponId;
-      this._life.chargeTargetId = enemy.playerId;
-      this._life.chargeStartTick = state.tick;
-
-      const chargeSpan = Math.max(0, profile.chargeMaxTicks - profile.chargeMinTicks);
-      const skillHold = 0.35 + this.difficulty.predictionSkill * 0.4;
-      const jitter = (Math.random() - 0.5) * 0.15;
-      const holdTicks = Math.round(profile.chargeMinTicks + chargeSpan * Math.max(0, Math.min(1, skillHold + jitter)));
-      this._life.chargeReleaseTick = state.tick + Math.max(profile.chargeMinTicks, holdTicks);
-      return { holdAltFire: true };
-    }
-
-    // Release on the aim: a blast let go while the view is still turning
-    // misses. The charge stops growing at its maximum, so waiting costs only
-    // time, and after CHARGE_AIM_GRACE_TICKS it goes anyway.
-    const off = Math.max(Math.abs(wrapAngle(aim.yaw - state.self.yaw)), Math.abs(aim.pitch - state.self.pitch));
-    const onAim = off <= CHARGE_RELEASE_CONE;
-    if (
-      state.tick >= this._life.chargeReleaseTick &&
-      (onAim || state.tick >= this._life.chargeReleaseTick + CHARGE_AIM_GRACE_TICKS)
-    ) {
-      this._clearChargedProjectileFire();
-      return { holdAltFire: false };
-    }
-
-    return { holdAltFire: true };
-  }
-
-  /**
-   * A blade charge outlives the fight decision that started it: the enemy
-   * steps out of sight, or a hit sends the bot dodging, and a player keeps
-   * holding to let go when they are back. Carried up to CHARGE_CARRY_TICKS
-   * with the charging weapon still out; any decision that lets go of
-   * alt-fire otherwise ends the charge, on the server and here.
-   */
-  private _carryCharge(state: BotGameState, input: BotInput): void {
-    if ((input.buttons & InputButtons.ALT_FIRE) !== 0 || this._life.chargeStartTick === null) return;
-    const carried =
-      !state.self.isDead &&
-      this.currentState !== BotState.FIGHT &&
-      state.self.currentWeapon === this._life.chargeWeaponId &&
-      !input.script &&
-      (input.weaponSlot ?? 0) === 0 &&
-      state.tick - this._life.chargeStartTick < CHARGE_CARRY_TICKS;
-    if (carried) input.buttons |= InputButtons.ALT_FIRE;
-    else this._clearChargedProjectileFire();
-  }
-
-  private _clearChargedProjectileFire(): void {
-    this._life.chargeWeaponId = null;
-    this._life.chargeTargetId = null;
-    this._life.chargeStartTick = null;
-    this._life.chargeReleaseTick = null;
-  }
   // ── DODGE State ───────────────────────────────────────────────────
 
-  private _executeDodge(state: BotGameState): BotInput {
-    // Sidestep threats; jump or slide only when the combat controller requests it.
-    const enemyDistance = state.getNearestEnemy()?.distance ?? 0;
-    const moves = this._combatMovement.step(state, this.aimDifficulty, enemyDistance);
-    const side = moves.strafe;
-    if (side !== 0) this._strafeDirection = side;
-
-    let buttons = InputButtons.SPRINT;
-    if (moves.jump) buttons |= InputButtons.JUMP;
-    if (moves.crouch) buttons |= InputButtons.CROUCH;
-    buttons |= this._strafeDirection > 0 ? InputButtons.RIGHT : InputButtons.LEFT;
-    buttons |= InputButtons.FORWARD;
-
-    // Try to aim at nearest visible enemy while dodging
-    const enemy = this._lastVision?.visibleEnemies[0]?.player ?? state.getNearestEnemy();
-    let pitch = state.self.pitch;
-    let yaw = state.self.yaw;
-
-    if (enemy) {
-      const aim = this._aimAtTarget(state, enemy);
-      pitch = aim.pitch;
-      yaw = aim.yaw;
-      // Only fire if we have vision-confirmed LOS
-      if (this._lastVision?.visibleEnemies.some((e) => e.player.playerId === enemy.playerId)) {
-        buttons |= InputButtons.FIRE;
-      }
-    }
-
-    return {
-      direction: { x: this._strafeDirection, y: 0, z: 1 },
-      pitch,
-      yaw,
-      buttons,
-      weaponSlot: 0,
-    };
-  }
-
   // ── CHASE State — Pursuit after LOS break ──────────────────────────
-
-  private _executeChase(state: BotGameState): BotInput {
-    const target = this._lastVision?.chaseTarget;
-    if (!target) {
-      // No target to chase — fall back to hunt
-      return this._executeHunt(state);
-    }
-
-    // Move toward predicted (extrapolated) position using navGraph if available
-    const holdUpper =
-      state.matchState.gametypeName.toLowerCase() === "duel" &&
-      target.lastSeenPosition.y < state.self.position.y - 64 &&
-      state.self.health >= 50;
-    const territory = holdUpper ? this._duelTerritory(state) : null;
-    const input =
-      holdUpper && !territory
-        ? this._keepUpperGround(
-            state,
-            { position: target.predictedPosition },
-            this._moveToward(state, { ...target.predictedPosition, y: state.self.position.y }, false),
-          )
-        : this._nav.navigateTo(state, territory ?? target.predictedPosition, false);
-    if (holdUpper) {
-      input.moveYaw = travelYaw(input);
-      input.yaw = Math.atan2(
-        target.predictedPosition.x - state.self.position.x,
-        target.predictedPosition.z - state.self.position.z,
-      );
-    } else {
-      this._watchLostEnemy(state, target, input);
-    }
-
-    // Only pre-fire when very close to predicted position (near corners)
-    const distToTarget = vec3Length(vec3Subtract(target.predictedPosition, state.self.position));
-    if (!holdUpper && distToTarget < 200 && target.confidence > 0.7) {
-      input.buttons |= InputButtons.FIRE;
-    }
-
-    // Select appropriate weapon (use last known distance)
-    const { slot: chaseSlot } = selectBestWeapon(
-      state.self.weapons,
-      state.self.ammo,
-      state.self.currentWeapon,
-      target.lastDistance,
-    );
-    if (chaseSlot > 0) {
-      input.weaponSlot = chaseSlot;
-    }
-
-    return input;
-  }
-
-  /**
-   * Keep looking where an enemy just went out of sight while running the
-   * route after them, as a player watches the corner. Looking along the route
-   * instead swung the view away and back each time sight came and went.
-   */
-  private _watchLostEnemy(state: BotGameState, target: EnemyTrack, input: BotInput): void {
-    if (target.source !== "visual" || state.tick - target.lastSeenTick > CHASE_WATCH_TICKS) return;
-    const delta = vec3Subtract(target.predictedPosition, this._getFireOrigin(state));
-    const horizontal = Math.hypot(delta.x, delta.z);
-    if (horizontal < 1) return;
-    const watchYaw = Math.atan2(delta.x, delta.z);
-    const moveYaw = travelYaw(input);
-    if (Math.abs(wrapAngle(watchYaw - moveYaw)) > CHASE_WATCH_MAX_OFF_TRAVEL) return;
-    input.moveYaw = moveYaw;
-    input.yaw = watchYaw;
-    input.pitch = -Math.atan2(delta.y, horizontal);
-  }
 
   // ── RETREAT State ─────────────────────────────────────────────────
 
@@ -1457,364 +798,20 @@ export class StateMachineBrain extends BotBrain {
     return !enemy || enemy.uncertainty > 0.5 || own <= enemy.stack;
   }
 
-  /**
-   * A way out of a known enemy's sight: the nearest route node, within reach,
-   * that the enemy cannot see from where it was last known and that does not
-   * lie toward it. Reached once and dropped; null with no enemy or no node.
-   */
-  private _escapePoint(state: BotGameState): Vec3 | null {
-    const graph = this._navGraph;
-    const vision = this._lastBotVision;
-    if (!graph || !vision) return null;
-    const threat = this._lastVision?.visibleEnemies[0]?.player.position ?? this._getHuntTarget(state);
-    if (!threat) return null;
-    const self = state.self.position;
-    if (this._life.escape && state.tick < this._life.escape.untilTick) {
-      if (vec3Length(vec3Subtract(this._life.escape.point, self)) > ESCAPE_REACHED) return this._life.escape.point;
-      this._life.escape = null;
-      return null;
-    }
-    if (state.tick < this._escapeRetryTick) return null;
-    const toThreat = vec3Normalize(vec3Subtract(threat, self));
-    const eye = { x: threat.x, y: threat.y + 36, z: threat.z };
-    const candidates: { position: Vec3; distance: number }[] = [];
-    for (const node of graph.nodes) {
-      const offset = vec3Subtract(node.position, self);
-      const distance = vec3Length(offset);
-      if (distance < ESCAPE_MIN || distance > ESCAPE_MAX) continue;
-      const away = (offset.x * toThreat.x + offset.z * toThreat.z) / Math.max(1, distance);
-      if (away <= ESCAPE_MAX_TOWARD) candidates.push({ position: node.position, distance });
-    }
-    // Sight lines and route costs for the nearest few only.
-    candidates.sort((a, b) => a.distance - b.distance);
-    let best: { point: Vec3; cost: number } | null = null;
-    for (const { position } of candidates.slice(0, ESCAPE_CANDIDATES)) {
-      if (vision.canSee(eye, { x: position.x, y: position.y + 36, z: position.z })) continue;
-      const cost = graph.estimateTravelCost(self, position);
-      if (cost === null || (best && cost >= best.cost)) continue;
-      best = { point: position, cost };
-    }
-    this._life.escape = best ? { point: best.point, untilTick: state.tick + ESCAPE_HOLD_TICKS } : null;
-    if (!best) this._escapeRetryTick = state.tick + ESCAPE_RETRY_TICKS;
-    return best?.point ?? null;
-  }
-
-  private _executeRetreat(state: BotGameState): BotInput {
-    // First out of the enemy's sight, then to health.
-    if (this._lastVision?.visibleEnemies.length) {
-      const wayOut = this._escapePoint(state);
-      if (wayOut) return this._nav.navigateTo(state, wayOut, true);
-    } else this._life.escape = null;
-
-    // Scored choice among HEALTH ONLY. Retreating is a specific intent, so the
-    // candidate set is filtered rather than left open — but within health the
-    // arbiter still beats "nearest": it accounts for overcap (a bubble at 98 HP
-    // is worthless), route cost, and mega vs. medium.
-    const healthGoal = this._selectItemGoal(state, RETREAT_ITEM_TYPES, true)?.goal;
-    if (healthGoal) return this._nav.navigateTo(state, healthGoal.position, true);
-
-    // Try NavGraph path to nearest health (cached via _navigateToItem)
-    if (this._navGraph) {
-      const result = this._navigateToItem(state, "health", true);
-      if (result) return result;
-    }
-
-    // Try vision's cover finding
-    if (this._lastVision?.nearestCover) {
-      return this._nav.navigateTo(state, this._lastVision.nearestCover, true);
-    }
-
-    // Try nearest health item from BSP knowledge
-    if (this._lastBotVision) {
-      const healthPos = this._lastBotVision.findNearestItem(state.self.position, "health", state.pickupActiveMask);
-      if (healthPos) {
-        return this._nav.navigateTo(state, healthPos, true);
-      }
-    }
-
-    // Find nearest pickup (prefer health)
-    const pickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
-    if (pickup) {
-      return this._nav.navigateTo(state, pickup.position, true);
-    }
-
-    // No pickup found → run away from nearest enemy
-    const enemy = state.getNearestEnemy();
-    if (enemy) {
-      // Move away from enemy (guard against same-position producing zero-length vector)
-      const rawDir = vec3Subtract(state.self.position, enemy.position);
-      const len = vec3Length(rawDir);
-      const awayDir = len > 0.01 ? vec3Normalize(rawDir) : { x: Math.random() - 0.5, y: 0, z: Math.random() - 0.5 };
-      const targetYaw = Math.atan2(awayDir.x, awayDir.z);
-
-      return {
-        direction: { x: 0, y: 0, z: 1 },
-        pitch: 0,
-        yaw: targetYaw,
-        buttons: InputButtons.FORWARD | InputButtons.SPRINT,
-        weaponSlot: 0,
-      };
-    }
-
-    // No enemy to run from → hunt
-    return this._executeHunt(state);
-  }
-
   // ── ITEM_RUN State ────────────────────────────────────────────────
-
-  private _executeItemRun(state: BotGameState): BotInput {
-    if (this._life.mandatoryGoal) {
-      const goal = this._life.mandatoryGoal;
-      this._life.activeItemGoal = goal;
-      return this._navigateGoal(state, goal, true);
-    }
-    // Scored choice first: value, denial, route and danger decide which item,
-    // instead of the fixed weapon > health > armor > ammo ordering below (which
-    // took the nearest of whichever type came first, so a 5 HP bubble could
-    // outrank Red Armor). Falls through to the legacy path when disabled or
-    // when nothing scores.
-    const choice = this._selectItemGoal(state);
-    // Only a DIRECTIVE goal holds on arrival. An item goal has to be touched,
-    // and a bot that stops next to a Red Armor never picks it up.
-    if (choice) {
-      const goal = choice.goal;
-      // An item worth having just off the way there is taken first.
-      if (choice.stopover && !goal.directive) return this._navigateGoal(state, choice.stopover, false);
-      const territory =
-        !goal.directive && goal.position.y < state.self.position.y - 48 ? this._duelTerritory(state) : null;
-      return territory ? this._nav.navigateTo(state, territory, false) : this._navigateGoal(state, goal, false);
-    }
-
-    // Try NavGraph path to nearest item (weapon > health > armor > ammo)
-    // Uses cached _navigateToItem to avoid A* every tick
-    if (this._navGraph) {
-      for (const itemType of ["weapon", "health", "armor", "ammo"]) {
-        const result = this._navigateToItem(state, itemType, false);
-        if (result) return result;
-      }
-    }
-
-    // Prefer vision-verified reachable pickups
-    if (this._lastVision) {
-      const reachable = this._lastVision.pickups.find((p) => p.isReachable);
-      if (reachable) {
-        return this._nav.navigateTo(state, reachable.pickup.position, false);
-      }
-    }
-
-    // Try BSP-known item positions
-    if (this._lastBotVision) {
-      const weaponPos = this._lastBotVision.findNearestItem(state.self.position, "weapon", state.pickupActiveMask);
-      if (weaponPos) {
-        return this._nav.navigateTo(state, weaponPos, false);
-      }
-    }
-
-    // Fallback to raw state pickups
-    const pickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
-    if (pickup) {
-      return this._nav.navigateTo(state, pickup.position, false);
-    }
-
-    // No pickups found → hunt
-    return this._executeHunt(state);
-  }
 
   // ── HUNT State ────────────────────────────────────────────────────
 
-  private _executeHunt(state: BotGameState): BotInput {
-    this._huntTimer++;
-
-    const territory = this._duelTerritory(state);
-    if (territory) return this._nav.navigateTo(state, territory, false);
-
-    // Prefer a scored goal over aimless patrol. Reached when the ladder falls
-    // through to HUNT but the arbiter still has something worth doing — an
-    // objective, or an item that did not meet _shouldSeekItems' cruder bar.
-    const goal = this._selectItemGoal(state)?.goal;
-    if (goal) return this._navigateGoal(state, goal, false);
-
-    // Check if we know a last enemy position to investigate
-    const huntTarget = this._getHuntTarget(state);
-    if (huntTarget) {
-      return this._nav.navigateTo(state, huntTarget, false);
-    }
-
-    // NavGraph patrol: pick a random nav node to walk toward
-    if (this._navGraph) {
-      const nodes = this._navGraph.nodes;
-      if (nodes.length > 0 && (!this._life.huntPatrolTarget || this._nav.pathRecalcTimer > PATH_RECALC_INTERVAL * 2)) {
-        const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
-        this._life.huntPatrolTarget = randomNode.position;
-        this._nav.pathRecalcTimer = 0;
-      }
-      if (this._life.huntPatrolTarget) {
-        // Check if we've arrived at patrol target
-        const distToPatrol = vec3Length(vec3Subtract(this._life.huntPatrolTarget, state.self.position));
-        if (distToPatrol < PATH_ARRIVED_THRESHOLD) {
-          this._life.huntPatrolTarget = null; // Pick new target next tick
-          this._life.currentPath = null;
-        } else {
-          return this._nav.navigateTo(state, this._life.huntPatrolTarget, false);
-        }
-      }
-    }
-
-    // Fallback: random patrol — change direction periodically
-    if (this._huntTimer > HUNT_DIRECTION_CHANGE_INTERVAL) {
-      this._huntYaw += (Math.random() - 0.5) * Math.PI;
-      this._huntTimer = 0;
-    }
-
-    // Look around randomly (human-feel)
-    this._updateLookAround();
-
-    const buttons = InputButtons.FORWARD | InputButtons.SPRINT;
-
-    return {
-      direction: { x: 0, y: 0, z: 1 },
-      pitch: 0,
-      yaw: this._huntYaw + this._lookAroundYaw,
-      buttons,
-      weaponSlot: 0,
-    };
-  }
-
   // ── Aiming ────────────────────────────────────────────────────────
-
-  private _aimAtTarget(state: BotGameState, target: VisiblePlayer): { pitch: number; yaw: number } {
-    let targetPos = { ...target.position };
-
-    // Predict target position based on velocity (for projectile weapons)
-    if (this.difficulty.predictionSkill > 0) {
-      const prediction = this._predictTargetPosition(state, target);
-      targetPos = prediction;
-    }
-
-    // Weapons fire from the eye, not the player origin. Aim at the enemy origin
-    // from our fire origin so same-floor shots do not pass above the target.
-    const delta = vec3Subtract(targetPos, this._getFireOrigin(state));
-    const horizontalDist = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
-    const perfectYaw = horizontalDist > 0.01 ? Math.atan2(delta.x, delta.z) : state.self.yaw;
-    const perfectPitch =
-      horizontalDist > 0.01 ? -Math.atan2(delta.y, horizontalDist) : delta.y > 0 ? -Math.PI / 2 : Math.PI / 2;
-
-    // Where to look, exactly: the client turns the view there at this
-    // difficulty's speed and adds its wandering error (BotAimController).
-    return { yaw: perfectYaw, pitch: perfectPitch };
-  }
-
-  private _predictTargetPosition(_state: BotGameState, target: VisiblePlayer): Vec3 {
-    // Estimate projectile travel time
-    const distance = target.distance;
-    const estimatedProjectileSpeed = 1400; // rough average projectile speed
-    const travelTime = distance / estimatedProjectileSpeed;
-
-    // Apply prediction with skill factor
-    const predFactor = this.difficulty.predictionSkill * travelTime;
-
-    return {
-      x: target.position.x + target.velocity.x * predFactor,
-      y: target.position.y + target.velocity.y * predFactor,
-      z: target.position.z + target.velocity.z * predFactor,
-    };
-  }
 
   // ── Weapon Selection ──────────────────────────────────────────────
 
-  /**
-   * Aim at target with projectile lead prediction.
-   * Uses the weapon's projectile speed to predict where the target will be.
-   */
-  private _aimAtTargetWithLead(
-    state: BotGameState,
-    target: VisiblePlayer,
-    profile: WeaponProfile,
-  ): { pitch: number; yaw: number } {
-    // Estimate travel time: distance / projectileSpeed
-    const travelTime = target.distance / (profile.projectileSpeed || 2500);
-
-    // Predicted position = current position + velocity * travelTime
-    const predicted: Vec3 = {
-      x: target.position.x + (target.velocity?.x ?? 0) * travelTime,
-      y: target.position.y + (target.velocity?.y ?? 0) * travelTime,
-      z: target.position.z + (target.velocity?.z ?? 0) * travelTime,
-    };
-
-    // Splash weapons: aim slightly lower (toward feet)
-    if (profile.hasSplash) {
-      predicted.y -= 20;
-    }
-
-    // Calculate angles from the actual weapon fire origin.
-    const diff = vec3Subtract(predicted, this._getFireOrigin(state));
-    const dist2D = Math.sqrt(diff.x * diff.x + diff.z * diff.z);
-
-    const yaw = Math.atan2(diff.x, diff.z);
-    const pitch = -Math.atan2(diff.y, dist2D);
-
-    // Turn speed and aim error are the client's (BotAimController), as in _aimAtTarget.
-    return { yaw, pitch };
-  }
-
   // ── Movement Helpers ──────────────────────────────────────────────
-
-  /** Where this bot's shots leave from: its eye, as the game server places it. */
-  private _getFireOrigin(state: BotGameState): Vec3 {
-    return {
-      x: state.self.position.x,
-      y: state.self.position.y + scaledBodyHeight(DEFAULT_VIEWHEIGHT, this._bodyScale),
-      z: state.self.position.z,
-    };
-  }
 
   /**
    * Navigate to a target position using NavGraph pathfinding when available.
    * Falls back to direct movement when no graph exists.
    */
-  /**
-   * How close to a goal the bot stops and waits: a directive's own radius, or
-   * beside a timed item that is not back yet. Undefined for goals to touch.
-   */
-  private _holdRadius(goal: BotGoal, state: BotGameState): number | undefined {
-    if (goal.directive) return goal.radius;
-    if (goal.respawnTick !== undefined && goal.respawnTick > state.tick) return TIMED_ITEM_HOLD_RADIUS;
-    return undefined;
-  }
-
-  private _selectMandatoryGoal(state: BotGameState): BotGoal | null {
-    if (this._goalArbiterMode === "legacy") return null;
-    const weights = selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
-    if (weights.objectivePush <= 0) return null;
-    const goals = collectDirectiveGoals(state).filter(
-      (goal) => goal.directive?.interrupt === "never" && Number.isFinite(goal.directive.priority),
-    );
-    goals.sort((a, b) => (b.directive?.priority ?? 0) - (a.directive?.priority ?? 0) || a.id.localeCompare(b.id));
-    return goals[0] ?? null;
-  }
-
-  private _navigateGoal(state: BotGameState, goal: BotGoal, urgent: boolean): BotInput {
-    const waypoint = this._nav.nextWaypoint(state, goal);
-    if (waypoint) return this._nav.navigateTo(state, waypoint, urgent);
-    const radius = this._holdRadius(goal, state);
-    // Planting and defusing use move_to: those orders must stay still on arrival.
-    // Escorting patrols round the player escorted, as it moves.
-    const patrol =
-      goal.directive?.kind === "defend" || goal.directive?.kind === "hold_area" || goal.directive?.kind === "escort";
-    if (patrol && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
-      return this._guardPatrol(state, goal.id, goal.position, radius, goal.directive?.watch ?? null);
-    }
-    this._life.sitePatrol = null;
-    const timed = !goal.directive && goal.respawnTick !== undefined && goal.respawnTick > state.tick;
-    if (timed && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
-      if (state.matchState.gametypeName.toLowerCase() === "duel") {
-        const patrol = this._duelTerritory(state, goal.position);
-        return patrol ? this._nav.navigateTo(state, patrol, false) : this._startRecovery(state);
-      }
-      return this._watchEntrances(state, goal.position);
-    }
-    return this._nav.navigateTo(state, goal.position, urgent, radius);
-  }
 
   private _duelTerritory(state: BotGameState, center?: Vec3): Vec3 | null {
     if (state.matchState.gametypeName.toLowerCase() !== "duel" || !this._navGraph || !this._lastBotVision) return null;
@@ -1986,156 +983,6 @@ export class StateMachineBrain extends BotBrain {
    * Wait by a timed item looking at the ways in, a few seconds each, rather
    * than at the item: whoever comes for it arrives through one of them.
    */
-  /** Waiting for an item: on the move round it, watching the ways in. */
-  private _watchEntrances(state: BotGameState, item: Vec3): BotInput {
-    return this._guardPatrol(state, `item:${item.x},${item.z}`, item, TIMED_ITEM_HOLD_RADIUS, null);
-  }
-
-  /**
-   * Guarding: on the move round `center`, never standing. The guard runs
-   * between walkable points within `radius`, choosing ones that see the way
-   * in, and keeps its view on that way in (or on the ways into the spot) while
-   * it runs, as a player strafes about a doorway instead of standing in it.
-   * With nowhere to run, it strafes side to side facing the way in.
-   */
-  private _guardPatrol(
-    state: BotGameState,
-    goalId: string,
-    center: Vec3,
-    radius: number,
-    watch: Vec3 | null,
-  ): BotInput {
-    // A walk round the spot, steered but not swapped for a slide or a hop.
-    this._claims.hold("movement", "guard patrol", "corrections");
-    const self = state.self.position;
-    const look = watch ?? this._entranceToWatch(state, center);
-    const lookYaw = look ? Math.atan2(look.x - self.x, look.z - self.z) : state.self.yaw;
-    const sweep = Math.sin((state.tick / TICK_RATE) * HOLD_SWEEP_RATE) * HOLD_SWEEP;
-    const pitch = look
-      ? -Math.atan2(
-          look.y - (self.y + scaledBodyHeight(DEFAULT_VIEWHEIGHT, this._bodyScale)),
-          Math.hypot(look.x - self.x, look.z - self.z),
-        )
-      : 0;
-
-    const previous = this._life.sitePatrol;
-    let target =
-      previous?.goalId === goalId &&
-      state.tick < previous.expires &&
-      vec3Length(vec3Subtract(previous.target, self)) > GUARD_POINT_REACHED
-        ? previous.target
-        : null;
-    if (!target) {
-      target = this._guardPoint(state, center, radius, look, previous?.goalId === goalId ? previous.target : null);
-      this._life.sitePatrol = target ? { goalId, target, expires: state.tick + 4 * TICK_RATE, pauseUntil: 0 } : null;
-    }
-    if (!target) {
-      // Strafe across the way in, turning back every so often, toward the side with room
-      const room = (sign: number) => {
-        const a = lookYaw + sign * (Math.PI / 2);
-        const world = this._lastBotVision?.collisionWorld;
-        if (!world) return 1;
-        return world.trace(self, { x: self.x + Math.sin(a) * 96, y: self.y, z: self.z + Math.cos(a) * 96 }).fraction;
-      };
-      const turn = Math.floor(state.tick / GUARD_STRAFE_TICKS) % 2 === 0 ? 1 : -1;
-      const side = room(turn) >= 0.5 || room(turn) >= room(-turn) ? turn : -turn;
-      return {
-        direction: { x: side, y: 0, z: 0 },
-        pitch,
-        yaw: lookYaw + sweep,
-        moveYaw: lookYaw,
-        buttons: side < 0 ? InputButtons.LEFT : InputButtons.RIGHT,
-        weaponSlot: 0,
-      };
-    }
-    return {
-      direction: { x: 0, y: 0, z: 1 },
-      pitch,
-      yaw: lookYaw + sweep,
-      moveYaw: Math.atan2(target.x - self.x, target.z - self.z),
-      buttons: InputButtons.FORWARD | InputButtons.SPRINT,
-      weaponSlot: 0,
-    };
-  }
-
-  /**
-   * The next patrol point round `center`: walkable from here on this floor,
-   * away from the last one, and where the way in can be seen, if any can.
-   */
-  private _guardPoint(
-    state: BotGameState,
-    center: Vec3,
-    radius: number,
-    look: Vec3 | null,
-    last: Vec3 | null,
-  ): Vec3 | null {
-    const vision = this._lastBotVision;
-    if (!vision) return null;
-    const self = state.self.position;
-    const r = Math.max(GUARD_MIN_RADIUS, Math.min(GUARD_MAX_RADIUS, radius));
-    const offset = Math.random() * Math.PI * 2;
-    const candidates: { point: Vec3; score: number }[] = [];
-    for (const ring of GUARD_RINGS) {
-      for (let k = 0; k < GUARD_DIRECTIONS; k++) {
-        const a = offset + (k / GUARD_DIRECTIONS) * Math.PI * 2;
-        const point = { x: center.x + Math.sin(a) * r * ring, y: self.y, z: center.z + Math.cos(a) * r * ring };
-        if (vec3Length(vec3Subtract(point, self)) < 96) continue;
-        if (last && vec3Length(vec3Subtract(point, last)) < 96) continue;
-        if (!vision.isWalkable(self, point)) continue;
-        const sees =
-          look !== null && vision.canSee({ ...point, y: point.y + GUARD_EYE }, { ...look, y: look.y + GUARD_EYE });
-        candidates.push({ point, score: (sees ? 2 : 0) + Math.random() });
-      }
-    }
-    candidates.sort((a, b) => b.score - a.score);
-    return candidates[0]?.point ?? null;
-  }
-
-  /** One of the ways into `spot` on the nav graph, taken in turn over time; null if none. */
-  private _entranceToWatch(state: BotGameState, spot: Vec3): Vec3 | null {
-    const graph = this._navGraph;
-    const node = graph?.findNearestNode(spot);
-    if (!graph || !node) return null;
-    const ways = graph.edges
-      .filter((edge) => edge.to === node.id && edge.from !== node.id)
-      .map((edge) => graph.nodes.find((n) => n.id === edge.from)?.position)
-      .filter((position): position is Vec3 => position !== undefined)
-      .filter((position) => vec3Length(vec3Subtract(position, state.self.position)) > 64);
-    if (ways.length === 0) return null;
-    return ways[Math.floor(state.tick / ENTRANCE_WATCH_TICKS) % ways.length];
-  }
-
-  /** The guard order whose ground a fight or chase must not leave, if any. */
-  private _leashOrder(state: BotGameState): { center: Vec3; leash: number } | null {
-    let best: { center: Vec3; leash: number; priority: number } | null = null;
-    for (const order of state.directives) {
-      if (order.leash === undefined || order.target.type !== "position" || order.expiresAtTick <= state.tick) continue;
-      if (order.kind !== "hold_area" && order.kind !== "defend") continue;
-      if (!best || order.priority > best.priority) {
-        best = { center: order.target.position, leash: order.leash, priority: order.priority };
-      }
-    }
-    return best;
-  }
-
-  /**
-   * A guard in a fight that has drifted past its leash heads back while it
-   * keeps aiming: the fight is answered from the ground it was sent to hold.
-   */
-  private _applyLeash(state: BotGameState, input: BotInput): BotInput {
-    const order = this._leashOrder(state);
-    if (!order) return input;
-    const self = state.self.position;
-    if (Math.hypot(self.x - order.center.x, self.z - order.center.z) <= order.leash) return input;
-    const back = Math.atan2(order.center.x - self.x, order.center.z - self.z);
-    const keep = InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.JUMP | InputButtons.CROUCH;
-    return {
-      ...input,
-      direction: { x: 0, y: 0, z: 1 },
-      moveYaw: back,
-      buttons: (input.buttons & keep) | InputButtons.FORWARD,
-    };
-  }
 
   /**
    * The route ended short of the item being fetched and there is no clear walk
@@ -2338,15 +1185,6 @@ export class StateMachineBrain extends BotBrain {
 
   // ── Feeler Raycasts (Wall Avoidance) ──────────────────────────────
 
-  private _updateLookAround(): void {
-    this._lookAroundTimer++;
-    const interval = this.difficulty.lookAroundInterval * 60; // Convert seconds to ticks
-    if (this._lookAroundTimer > interval) {
-      this._lookAroundYaw = (Math.random() - 0.5) * 0.5; // Small random look
-      this._lookAroundTimer = 0;
-    }
-  }
-
   // ── Decision Helpers ──────────────────────────────────────────────
 
   /**
@@ -2479,6 +1317,117 @@ export class StateMachineBrain extends BotBrain {
     };
   }
 
+  /** What following orders reaches of this brain. */
+  private _ordersHost(): OrdersHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get nav() {
+        return brain._nav;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get claims() {
+        return brain._claims;
+      },
+      get bodyScale() {
+        return brain._bodyScale;
+      },
+      get goalArbiterMode() {
+        return brain._goalArbiterMode;
+      },
+      duelTerritory: (...args) => brain._duelTerritory(...args),
+      startRecovery: (...args) => brain._startRecovery(...args),
+    };
+  }
+
+  /** What fighting reaches of this brain. */
+  private _fightHost(): FightHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get visionResult() {
+        return brain._lastVision;
+      },
+      get traversal() {
+        return brain._traversal;
+      },
+      get mood() {
+        return brain._mood;
+      },
+      get difficulty() {
+        return brain.difficulty;
+      },
+      get aimDifficulty() {
+        return brain.aimDifficulty;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      get fightOff() {
+        return brain._fightOff;
+      },
+      get bodyScale() {
+        return brain._bodyScale;
+      },
+      get strafeDirection() {
+        return brain._strafeDirection;
+      },
+      set strafeDirection(value) {
+        brain._strafeDirection = value;
+      },
+      enemyEstimate: (...args) => brain._enemyEstimate(...args),
+      hunt: (...args) => brain._roam.hunt(...args),
+    };
+  }
+
+  /** What roaming reaches of this brain. */
+  private _roamHost(): RoamHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get nav() {
+        return brain._nav;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get visionResult() {
+        return brain._lastVision;
+      },
+      get difficulty() {
+        return brain.difficulty;
+      },
+      duelTerritory: (...args) => brain._duelTerritory(...args),
+      keepUpperGround: (...args) => brain._fight.keepUpperGround(...args),
+      fireOrigin: (...args) => brain._fight.fireOrigin(...args),
+      moveToward: (...args) => brain._moveToward(...args),
+      selectItemGoal: (...args) => brain._selectItemGoal(...args),
+      navigateToItem: (...args) => brain._navigateToItem(...args),
+      navigateGoal: (...args) => brain._orders.navigateGoal(...args),
+      huntTarget: (...args) => brain._getHuntTarget(...args),
+    };
+  }
+
   /** What the navigator reaches of this brain. */
   private _navigatorHost(): NavigatorHost {
     const brain = this;
@@ -2516,9 +1465,7 @@ export class StateMachineBrain extends BotBrain {
   private _startLife(): void {
     this._life = new BotLife();
     this._itemGoalPlanner.reset();
-    this._combatMovement.reset();
-    this._coverPeek.reset();
-    this._weaponCombos.reset();
+    this._fight.startLife();
     this._mood.endFight();
     this._territory.reset();
     this._blocked.reset();
