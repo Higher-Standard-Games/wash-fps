@@ -186,6 +186,27 @@ describe("cutscene", () => {
     expect(cutscene.root.isConnected).toBe(false);
   });
 
+  it("finishes playing when skipped or closed during its opening fade", async () => {
+    const done = vi.fn();
+    const cutscene = new CampaignCutscene({
+      card: campaignStory("street-riot")!.card!,
+      label: "Operation 02",
+      title: "Street Riot",
+      onPanelsDone: done,
+    });
+    let settled = false;
+    const playing = cutscene.play().then(() => {
+      settled = true;
+    });
+    // Escape at once, before the fade to black is over
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(done).toHaveBeenCalledOnce();
+    cutscene.close();
+    await vi.advanceTimersByTimeAsync(1000);
+    await playing;
+    expect(settled).toBe(true);
+  });
+
   it("skips to the end on Escape and shows a failure with a way back", async () => {
     const done = vi.fn();
     const back = vi.fn();

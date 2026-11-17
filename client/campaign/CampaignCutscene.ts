@@ -322,8 +322,12 @@ export class CampaignCutscene {
     this.timers.add(timer);
   }
 
+  /**
+   * A pause in play(), outside the panel timers: skipping or closing clears
+   * those, and a cleared wait would leave play() unsettled for good.
+   */
   private wait(ms: number): Promise<void> {
-    return new Promise((resolve) => this.later(resolve, ms));
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
   private clearTimers(): void {
