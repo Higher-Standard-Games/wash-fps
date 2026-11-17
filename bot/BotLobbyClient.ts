@@ -288,15 +288,16 @@ export class BotLobbyClient {
         // side and get measured against that split, so a lobby's teams could
         // rearrange themselves the moment the match began.
         if (this._lobbyTeam) this._botOptions.team = this._lobbyTeam;
-        // A campaign boss is bigger than a player and aims from its own eye
-        // Slime and lava do not hurt a campaign boss, so it fights on in them
-        if (connect.campaign?.slimeImmune?.includes(this.name)) {
-          this._botOptions.liquidImmune = true;
-        }
+        // This match's own: a campaign boss is bigger than a player and aims
+        // from its own eye, and slime and lava do not hurt it, so it fights on
+        // in them. Set for every match, so a match without them clears them.
+        const { liquidImmune: _immune, bodyScale: _scale, ...rest } = this._botOptions;
         const bodyScale = connect.campaign?.botScales?.[this.name];
-        if (bodyScale) {
-          this._botOptions.bodyScale = bodyScale;
-        }
+        this._botOptions = {
+          ...rest,
+          ...(connect.campaign?.slimeImmune?.includes(this.name) ? { liquidImmune: true } : {}),
+          ...(bodyScale ? { bodyScale } : {}),
+        };
         background(this._connectToGameServer(serverUrl, connect.admissionTicket), "BotLobbyClient");
         break;
       }
