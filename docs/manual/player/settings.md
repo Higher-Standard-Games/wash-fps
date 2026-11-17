@@ -160,8 +160,8 @@ match continues while its menu is open.
 - **Explosion shake** (`cg_screenshake`): on by default, under View & info. The view shakes when a rocket, grenade, plasma or blade blast goes off near you; off, it stays still.
 - **Shake when hit** (`cg_hitshake`): off by default. On, the view shakes when you take damage. Your own weapon's recoil kick is separate from both and stays.
 - **FPS counter** (`show_fps`) and **Movement speed** (`cl_showspeed`): both on by default, under View & info. Saved choices take priority.
-- **Match clock** (`cl_invertClock`): **Time left** (the default) counts down to the end; **Time played** counts up from 0:00 and runs on through overtime. Needs a server from v1.0.0-alpha or later; an older one keeps the countdown.
-- **Switch to picked-up weapons** (`cl_autoswitch`): **On** (the default) takes out a weapon as you walk over it. **Off** keeps what you hold, so a fight with the spawn blade is not interrupted by a gun you run across; switch to it yourself when you want it. The only switch left is when a new gun replaces the one in your hands. Needs a server from v1.0.0-alpha or later.
+- **Match clock** (`cl_invertClock`): **Time left** (the default) counts down to the end; **Time played** counts up from 0:00 and runs on through overtime.
+- **Switch to picked-up weapons** (`cl_autoswitch`): **On** (the default) takes out a weapon as you walk over it. **Off** keeps what you hold, so a fight with the spawn blade is not interrupted by a gun you run across; switch to it yourself when you want it. The only switch left is when a new gun replaces the one in your hands.
 - **Connection info** (`cl_netgraph`): Off, Numbers (ping, snapshot gaps, corrections and upload and download delay in the bottom-right corner) or Graph. See [HUD → NetGraph](./hud.md#netgraph-bottom-right-optional).
 
 ## Video

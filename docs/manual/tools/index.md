@@ -4,5 +4,5 @@ Things that live around the game proper.
 
 | Page | Covers |
 |------|--------|
-| [Bot Server](./bot-server.md) | Bot Intelligence Server — runs bots that connect to game servers as real clients |
+| [Bots](./bot-server.md) | Where bots run (the lobby's match runners, or a bot server), difficulty presets and how they play |
 | [Demo Cinematic](./demo-cinematic.md) | Highlight detection + cinematic auto-edit for demo playback |

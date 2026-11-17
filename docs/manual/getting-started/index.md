@@ -70,7 +70,8 @@ the repository split; the checkout commands above remain applicable until cutove
 
 Run `npm --prefix src/games/fps run lobby:server` in another terminal for a local lobby. Open
 `http://localhost:3000`, choose **Play**, a mode and Public or Private, then enter
-a room and ready up. Run `npm --prefix src/games/fps run bot:server` as well to add bots; a room with a bot is private.
+a room and ready up. **Add bot** in a room seats a bot; the lobby runs bots
+itself, so nothing else needs starting. A room with a bot is private.
 See [Your First Match](../player/first-match.md).
 
 For the developer flow with a one-keystroke server-backed map launch:
@@ -83,7 +84,7 @@ npm --prefix src/games/fps run lobby:server
 developer 1; map washoi_dm2 duel
 ```
 
-See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in the engine repo) for the full developer flow.
+See the engine's [Map Launching Guide](https://github.com/Higher-Standard-Games/shag/blob/main/docs/manual/guides/map-launching.md) for the full developer flow.
 
 ## Dedicated Server
 
@@ -112,15 +113,15 @@ Connect to it from the in-game console:
 connect ws://localhost:7777
 ```
 
-## Bot Intelligence Server
+## Bots
 
-Bots run as a separate Node.js process and connect to game servers as real WebSocket clients — at the protocol level they are indistinguishable from human players.
+Bots connect to game servers as real WebSocket clients; at the protocol level
+they are indistinguishable from human players. The lobby seats them and plays
+each match's bots in a child process of its own, so a running lobby is all
+they need. A separate bot server (`bot:server`) is the alternative.
 
-```bash
-npm --prefix src/games/fps run bot:server
-```
-
-See [Tools → Bot Server](../tools/bot-server.md) for the full bot lifecycle, difficulty presets, and training pipeline.
+See [Tools → Bots](../tools/bot-server.md) for where bots run, their difficulty
+presets and how they play.
 
 ## Preview this manual
 

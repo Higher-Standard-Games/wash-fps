@@ -11,13 +11,14 @@ SHAG root:
 
 | Purpose | Command |
 | --- | --- |
-| Lobby, which starts match servers as needed | `npm --prefix src/games/fps run lobby:server` |
-| Bot service for private-room bot invites | `npm --prefix src/games/fps run bot:server` |
+| Lobby, which starts match servers and runs invited bots | `npm --prefix src/games/fps run lobby:server` |
+| Separate bot server, for a lobby started with `--bot-server` | `npm --prefix src/games/fps run bot:server` |
 | Standalone match server | `npm --prefix src/games/fps run net:server -- --map washoi_dm2 --gametype ffa` |
 | Build server bundles without starting a process | `npm --prefix src/games/fps run build:server` |
 
-The lobby flow needs the lobby and, for bot invites, the bot service. A standalone
-match server is an alternative for direct connections. The start commands build
+The lobby flow needs only the lobby: it plays each match's bots in a match
+runner, a child process of its own. A standalone match server is an
+alternative for direct connections. The start commands build
 `dist-server/` before launching Node; `lobby:server:dev`, `bot:server:dev` and
 `net:server:dev` run source through `vite-node` instead.
 
@@ -25,8 +26,8 @@ From `src/games/fps`, the equivalent short command is `npm run lobby:server`
 (and likewise for the other game commands). The launcher sets the working
 directory to the SHAG root in both cases: `public/data/`, `dist-server/`, and
 relative `--data-dir` paths resolve there. To use a separate test database,
-pass `-- --data-dir ./server-data-test` to both lobby and bot commands.
-Use the same data directory for both so they share their control secret.
+pass `-- --data-dir ./server-data-test`. With a separate bot server, give it
+the same data directory so the two share their control secret.
 
 ## Production operations
 
@@ -69,7 +70,7 @@ Exit-velocity policy is a movement **config** value (deterministic; deliberately
 
 ## Dedicated Server Console
 
-The dedicated server reads commands from its terminal (stdin). In this version there are only three:
+The dedicated server reads commands from its terminal (stdin). It has three:
 
 | Command | Effect |
 |---------|--------|
@@ -79,7 +80,7 @@ The dedicated server reads commands from its terminal (stdin). In this version t
 
 Anything else prints `Unknown command`. There is no `kick`, `restart`, `endmatch` or map-rotation command; matches are started and ended through the lobby, or by restarting the process. A lobby-spawned server also receives one internal command from the lobby, used to seat a player who drops into a running match. It isn't meant to be typed by hand.
 
-Bots spawned this way are not the Bot Intelligence Server's bots. For bots that behave like players and have difficulty tiers, run [`npm --prefix src/games/fps run bot:server`](../tools/bot-server.md), or add bots from a lobby room.
+Bots spawned this way are simple server-side entities, not the game's [bots](../tools/bot-server.md). For bots that play like people and have difficulty tiers, add them from a lobby room.
 
 ## Server Launch Options
 
@@ -132,7 +133,7 @@ SHAG_DEBUG=phys,kb npm --prefix src/games/fps run net:server
 | `telemetry` | One line per playing client every 5 s: jitter, loss, aim and strikes |
 | `spawn` | Respawn requests, the spawn point picked and the respawn |
 | `kills` | One line per kill |
-| `bot` | Bot server: each bot's status line, deaths and respawns |
+| `bot` | Bot server and match runners: each bot's status line, deaths and respawns |
 | `setup` | A match's configuration: spawn points, collision, PVS, pickups and the tick loop |
 
 ## Game Console Commands

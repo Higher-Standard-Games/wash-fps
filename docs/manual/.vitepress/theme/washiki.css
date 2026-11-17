@@ -1,17 +1,9 @@
-/* The game's print-slab palette, with a reading-focused body typeface. */
-.mermaid {
-  margin: 24px 0;
-  padding: 20px;
-  overflow-x: auto;
-  border: 1px solid var(--vp-c-divider);
-  border-top: 3px solid var(--wash-violet);
-  background: var(--vp-c-bg-soft);
-}
-.mermaid svg {
-  display: block;
-  margin-inline: auto;
-  min-width: 280px;
-}
+/*
+ * The game's lobby look, within what VitePress allows: ink-violet pages, the
+ * gold rail with its violet edge, stamped plates for headings, raised keys for
+ * buttons and ink keycaps. Body text stays in Inter, which reads better at
+ * length than the game's Rajdhani.
+ */
 @font-face {
   font-family: "Manual Inter";
   src: url("../../public/fonts/Inter.ttf") format("truetype");
@@ -25,173 +17,473 @@
   font-display: swap;
 }
 @font-face {
+  font-family: "Manual Orbitron";
+  src: url("../../public/fonts/Orbitron-Black.ttf") format("truetype");
+  font-weight: 900;
+  font-display: swap;
+}
+@font-face {
   font-family: "Manual Rajdhani";
   src: url("../../public/fonts/Rajdhani.ttf") format("truetype");
   font-weight: 600;
   font-display: swap;
 }
-:root {
-  --wash-ink: hsl(250 45% 7%);
-  --wash-gold: hsl(46 100% 60%);
-  --wash-violet: hsl(276 90% 64%);
-  --vp-font-family-base: "Manual Inter", sans-serif;
-  --vp-c-brand-1: #785000;
-  --vp-c-brand-2: #946300;
-  --vp-c-brand-3: #ffcf33;
-  --vp-c-brand-soft: #edb70020;
-  --vp-c-bg: #fff9eb;
-  --vp-c-bg-alt: #f1e7d4;
-  --vp-c-bg-soft: #f5eddf;
-  --vp-c-text-1: #211b32;
-  --vp-c-text-2: #51465f;
-  --vp-c-divider: #d3c7b3;
-  --vp-button-brand-bg: var(--wash-gold);
-  --vp-button-brand-text: var(--wash-ink);
-  --vp-button-brand-hover-bg: #ffe080;
-  --vp-button-brand-hover-text: var(--wash-ink);
-  --vp-button-brand-active-bg: #efb928;
-  --vp-button-brand-active-text: var(--wash-ink);
-  --vp-home-hero-name-color: #785000;
-  --vp-code-block-bg: #efe4d3;
-}
+
+:root,
 .dark {
+  --wash-ink: hsl(250 45% 7%);
+  --wash-deep: hsl(250 50% 3%);
+  --wash-gold: hsl(46 100% 58%);
+  --wash-gold-light: hsl(51 100% 73%);
+  --wash-violet: hsl(276 90% 64%);
+  --wash-magenta: hsl(322 100% 60%);
+  --wash-cyan: hsl(180 100% 50%);
+  --wash-cream: hsl(45 100% 95%);
+  --wash-paper: hsl(43 55% 90%);
+  --wash-print: 6px 7px 0 var(--wash-deep);
+  --wash-display: "Manual Orbitron", sans-serif;
+  --wash-label: "Manual Rajdhani", sans-serif;
+
+  --vp-font-family-base: "Manual Inter", sans-serif;
   --vp-c-brand-1: var(--wash-gold);
-  --vp-c-brand-2: #ffe080;
-  --vp-c-brand-3: #ffcc33;
-  --vp-c-brand-soft: #ffcc3318;
-  --vp-c-bg: var(--wash-ink);
-  --vp-c-bg-alt: #171326;
-  --vp-c-bg-soft: #211b32;
-  --vp-c-text-1: #fff8e6;
-  --vp-c-text-2: #c7bfd3;
-  --vp-c-divider: #3d334e;
+  --vp-c-brand-2: hsl(48 100% 72%);
+  --vp-c-brand-3: hsl(46 100% 50%);
+  --vp-c-brand-soft: hsl(46 100% 58% / 0.12);
+  --vp-c-bg: hsl(255 38% 8%);
+  --vp-c-bg-alt: hsl(255 40% 6%);
+  --vp-c-bg-elv: hsl(258 36% 11%);
+  --vp-c-bg-soft: hsl(262 34% 13%);
+  --vp-c-text-1: var(--wash-cream);
+  --vp-c-text-2: hsl(265 20% 80%);
+  --vp-c-text-3: hsl(265 14% 62%);
+  --vp-c-divider: hsl(262 28% 22%);
+  --vp-c-gutter: hsl(255 40% 5%);
+  --vp-c-tip-1: var(--wash-violet);
+  --vp-c-tip-soft: hsl(276 90% 64% / 0.12);
+  --vp-c-warning-1: var(--wash-gold);
+  --vp-c-warning-soft: hsl(46 100% 58% / 0.1);
+  --vp-c-danger-1: var(--wash-magenta);
+  --vp-c-danger-soft: hsl(322 100% 60% / 0.12);
+  --vp-c-note-1: var(--wash-cyan);
+  --vp-c-note-soft: hsl(180 100% 50% / 0.08);
   --vp-home-hero-name-color: var(--wash-gold);
-  --vp-code-block-bg: #171326;
+  --vp-code-block-bg: hsl(255 42% 5%);
+  --vp-code-color: hsl(48 100% 75%);
+  --vp-code-bg: hsl(262 34% 15%);
+  --vp-nav-bg-color: hsl(255 42% 5%);
+  --vp-button-brand-text: var(--wash-ink);
+  --vp-button-brand-hover-text: var(--wash-ink);
+  --vp-button-brand-active-text: var(--wash-ink);
+  --vp-button-alt-text: var(--wash-ink);
+  --vp-button-alt-hover-text: var(--wash-ink);
+  --vp-button-alt-active-text: var(--wash-ink);
+  --vp-local-nav-bg-color: hsl(255 42% 5%);
 }
-.VPNavBarTitle .title,
+
+/* ── Home ── */
+
+.VPHome {
+  background: radial-gradient(ellipse 80% 50% at 70% 0%, hsl(276 70% 30% / 0.35), transparent 70%), var(--vp-c-bg);
+}
+.VPHero {
+  border-bottom: 0;
+}
 .VPHero .name,
-.VPHero .text,
-.vp-doc h1 {
-  font-family: "Manual Orbitron", sans-serif;
+.VPHero .text {
+  font-family: var(--wash-display);
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+.VPHero .name .clip {
+  color: var(--wash-gold);
+  -webkit-text-fill-color: var(--wash-gold);
+  text-shadow: 4px 5px 0 var(--wash-deep);
+}
+.VPHero .text {
+  font-size: clamp(26px, 4.6vw, 48px);
+  line-height: 1.2;
+  text-transform: uppercase;
+  text-shadow: 3px 4px 0 hsl(322 95% 40% / 0.6);
+}
+/* The tagline is the campaign page's typed paper slip */
+.VPHero .tagline {
+  display: inline-block;
+  max-width: 600px;
+  margin-top: 22px;
+  padding: 14px 18px;
+  border: 3px solid var(--wash-deep);
+  background: var(--wash-paper);
+  color: hsl(252 40% 12%);
+  font-family: "Courier New", ui-monospace, monospace;
   font-weight: 700;
-  letter-spacing: -0.035em;
+  font-size: 16px;
+  line-height: 1.5;
+  box-shadow: var(--wash-print);
+  transform: rotate(-0.6deg);
 }
-.VPNavBarTitle .title {
-  font-size: 15px;
+.VPHero .image-bg {
+  background: radial-gradient(circle, hsl(322 100% 60% / 0.35), hsl(276 90% 64% / 0.15) 50%, transparent 70%);
+  filter: blur(56px);
 }
+.VPHero .image-src {
+  max-width: min(420px, 90%);
+  filter: drop-shadow(6px 8px 0 var(--wash-deep));
+}
+.VPFeature {
+  border: 0;
+  border-top: 4px solid var(--wash-violet);
+  border-radius: 0;
+  background: hsl(258 36% 12%);
+  box-shadow: var(--wash-print);
+}
+.VPFeature:hover {
+  border-top-color: var(--wash-gold);
+}
+.VPFeature .title {
+  font-family: var(--wash-display);
+  font-style: italic;
+  font-weight: 900;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--wash-gold);
+}
+.VPFeature .details {
+  color: var(--vp-c-text-2);
+}
+
+/* ── The bar and the rail ── */
+
 .VPNavBar {
   border-bottom: 3px solid var(--wash-gold);
 }
-.VPNavBarMenuLink,
-.VPButton,
-.VPSidebarItem .text,
-.VPFeature .title,
-.vp-doc h2,
-.vp-doc h3 {
-  font-family: "Manual Rajdhani", sans-serif;
-  font-weight: 600;
+.VPNav .VPNavBar,
+.VPNavBar.has-sidebar .content-body,
+.VPNavBar:not(.home) {
+  background: var(--vp-nav-bg-color);
+}
+.VPNavBarTitle .logo {
+  height: 40px;
+  filter: drop-shadow(2px 3px 0 var(--wash-deep));
 }
 .VPNavBarMenuLink,
-.VPButton {
-  font-size: 17px;
+.VPNavBarMenuGroup .text {
+  font-family: var(--wash-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.VPSidebarItem .text {
-  font-size: 17px;
+.VPNavBarMenuLink.active {
+  color: var(--wash-gold);
 }
+
 .VPSidebar {
-  --vp-c-bg-alt: #ffcd33;
+  --vp-c-bg-alt: hsl(46 100% 58%);
   --vp-c-text-1: var(--wash-ink);
-  --vp-c-text-2: #352846;
-  --vp-c-text-3: #51405b;
+  --vp-c-text-2: hsl(260 35% 18%);
+  --vp-c-text-3: hsl(260 25% 28%);
   --vp-c-brand-1: var(--wash-ink);
-  --vp-c-brand-soft: #2b19351a;
-  --vp-c-divider: #6f4a0033;
-  background: linear-gradient(165deg, #ffdb61, #f2b91e);
+  --vp-c-divider: hsl(30 90% 25% / 0.25);
+  background: linear-gradient(170deg, var(--wash-gold-light), var(--wash-gold) 45%, hsl(42 100% 50%));
   border-right: 4px solid var(--wash-violet);
 }
-.VPSidebarItem.is-active > .item {
-  background: var(--vp-c-brand-soft);
-  box-shadow: inset 3px 0 var(--vp-c-brand-1);
-  padding-left: 10px;
+.VPSidebar .group + .group {
+  border-top-color: hsl(30 90% 25% / 0.25);
 }
-.VPButton,
-.VPFeature,
-.VPLocalSearchBox .shell,
-.custom-block,
-.vp-doc div[class*="language-"],
-.pager-link {
-  /* biome-ignore lint/complexity/noImportantStyles: overrides VitePress's own radii, set by selectors of every specificity */
-  border-radius: 2px !important;
+.VPSidebarItem .text {
+  font-family: var(--wash-label);
+  font-weight: 600;
+  font-size: 17px;
 }
-.VPButton {
-  border: 1px solid transparent;
-  box-shadow: 0 4px 0 #0005;
+.VPSidebarItem.level-0 > .item > .text,
+.VPSidebarItem.level-0 > .item > .link > .text {
+  font-family: var(--wash-display);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
-.VPButton.brand {
-  border-top-color: #fff8;
+/* The page you are on is latched like the lobby's key: an ink slab, gold text */
+.VPSidebarItem.is-active > .item {
+  margin-left: -10px;
+  padding-left: 12px;
+  background: linear-gradient(180deg, hsl(250 40% 16%), var(--wash-ink));
+  clip-path: polygon(3% 0, 100% 0, 97% 100%, 0 100%);
 }
-.VPButton.alt {
-  border-bottom: 3px solid var(--wash-violet);
+.VPSidebarItem.is-active > .item {
+  --vp-c-brand-1: var(--wash-gold);
+  --vp-c-text-1: var(--wash-gold);
+  --vp-c-text-2: var(--wash-gold);
 }
-.VPHero {
-  border-bottom: 1px solid var(--vp-c-divider);
+.VPSidebarItem.is-active > .item > .indicator {
+  display: none;
 }
-.VPHero .text {
-  font-size: clamp(28px, 5vw, 52px);
-  line-height: 1.2;
+
+/* ── Stamped plates: h1 in gold, h2 in violet (the campaign page's plates) ── */
+
+.vp-doc h1,
+.vp-doc h2 {
+  position: relative;
+  isolation: isolate;
+  display: inline-block;
+  max-width: 100%;
+  font-family: var(--wash-display);
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: -0.01em;
 }
-.VPHero .tagline {
-  max-width: 640px;
-  font-size: 19px;
-  line-height: 1.6;
+.vp-doc h1::before,
+.vp-doc h2::before,
+.vp-doc h1::after,
+.vp-doc h2::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(1% 6%, 99% 0, 100% 84%, 55% 100%, 0 90%);
+  transform: skewX(-6deg);
 }
-.VPFeature {
-  border-top: 3px solid var(--wash-violet);
+.vp-doc h1::before,
+.vp-doc h2::before {
+  z-index: -1;
 }
-.VPFeature .title {
-  font-size: 24px;
+.vp-doc h1::after,
+.vp-doc h2::after {
+  z-index: -2;
+  background: var(--wash-deep);
+  transform: translate(6px, 7px) skewX(-6deg);
 }
 .vp-doc h1 {
-  font-size: clamp(26px, 4vw, 36px);
-  line-height: 1.4;
+  margin-bottom: 8px;
+  padding: 0.12em 0.7em 0.2em 0.5em;
+  font-size: clamp(26px, 4vw, 38px);
+  line-height: 1.3;
+  color: var(--wash-ink);
+  text-shadow: 0.05em 0.06em 0 hsl(48 100% 80% / 0.55);
+}
+.vp-doc h1::before {
+  background:
+    repeating-linear-gradient(180deg, hsl(40 100% 30% / 0.12) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(52 100% 66%), hsl(46 100% 57%) 45%, hsl(40 98% 47%));
 }
 .vp-doc h2 {
-  font-size: 28px;
-  border-top: 2px solid var(--vp-c-divider);
+  margin-top: 56px;
+  padding: 0.14em 0.8em 0.22em 0.55em;
+  border-top: 0;
+  font-size: 22px;
+  line-height: 1.35;
+  text-transform: uppercase;
+  color: var(--wash-cream);
+  text-shadow: 0.05em 0.06em 0 hsl(322 95% 40% / 0.6);
+}
+.vp-doc h2::before {
+  background:
+    repeating-linear-gradient(180deg, hsl(276 70% 70% / 0.07) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(278 56% 30%), hsl(270 54% 22%) 48%, hsl(262 52% 17%));
+}
+/* The plate is the heading; anchors sit outside it */
+.vp-doc h1 .header-anchor,
+.vp-doc h2 .header-anchor {
+  left: -0.5em;
+  color: var(--wash-gold);
+}
+.vp-doc h2 + p,
+.vp-doc h2 + ul {
+  margin-top: 20px;
+}
+.vp-doc h3,
+.vp-doc h4 {
+  font-family: var(--wash-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .vp-doc h3 {
-  font-size: 23px;
+  font-size: 22px;
+  color: var(--wash-gold);
 }
+.vp-doc h4 {
+  font-size: 18px;
+  color: var(--wash-cyan);
+}
+
+/* ── Raised keys: hero and page buttons ── */
+
+.VPHero .actions .action,
+.VPButton {
+  filter: drop-shadow(5px 6px 0 hsl(28 88% 14%));
+}
+.VPButton {
+  border: 0;
+  border-radius: 0;
+  clip-path: polygon(4% 0, 100% 0, 96% 100%, 0 100%);
+  font-family: var(--wash-display);
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  box-shadow:
+    inset 0 2px 0 hsl(0 0% 100% / 0.5),
+    inset 0 -3px 0 hsl(250 60% 5% / 0.18);
+}
+.VPButton.medium {
+  padding: 0 28px;
+  line-height: 48px;
+}
+/* The main action is the magenta key, as Quick play is in the lobby */
+.VPButton.brand {
+  color: var(--wash-ink);
+  background: linear-gradient(180deg, hsl(322 100% 77%), hsl(322 95% 62%) 55%, hsl(318 85% 50%));
+}
+.VPButton.brand:hover {
+  color: var(--wash-ink);
+  background: linear-gradient(180deg, hsl(322 100% 82%), hsl(322 95% 68%) 55%, hsl(318 85% 56%));
+}
+.VPButton.alt {
+  color: var(--wash-ink);
+  background: linear-gradient(180deg, hsl(51 100% 73%), hsl(46 100% 58%) 55%, hsl(42 100% 50%));
+}
+.VPButton.alt:hover {
+  color: var(--wash-ink);
+  background: linear-gradient(180deg, hsl(51 100% 80%), hsl(46 100% 64%) 55%, hsl(42 100% 56%));
+}
+
+/* ── Page furniture ── */
+
 .vp-doc a {
   text-underline-offset: 3px;
 }
 .vp-doc table {
   width: 100%;
+  border-collapse: collapse;
+}
+.vp-doc tr {
+  background: hsl(258 36% 11%);
+}
+.vp-doc tr:nth-child(2n) {
+  background: hsl(258 34% 13%);
+}
+.vp-doc thead tr {
+  background: linear-gradient(105deg, hsl(278 56% 28%), hsl(262 52% 18%));
 }
 .vp-doc th {
-  background: var(--vp-c-brand-soft);
+  background: transparent;
+  color: var(--wash-gold);
+  font-family: var(--wash-label);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
+.vp-doc th,
+.vp-doc td {
+  border-color: var(--vp-c-divider);
+}
+/* Keycaps as the lobby's tips draw them: ink caps, gold letters */
 .vp-doc kbd {
-  border: 1px solid var(--vp-c-divider);
-  border-bottom-width: 3px;
+  display: inline-block;
+  padding: 2px 7px;
+  border: 1px solid hsl(46 100% 58% / 0.35);
+  border-bottom: 3px solid hsl(46 100% 58% / 0.55);
   border-radius: 2px;
-  padding: 1px 5px;
-  font-size: 0.9em;
+  background: var(--wash-ink);
+  color: var(--wash-gold);
+  font-family: var(--wash-display);
+  font-weight: 700;
+  font-size: 0.78em;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
 }
-.custom-block.tip {
-  border-left: 4px solid var(--vp-c-brand-1);
+.vp-doc div[class*="language-"],
+.vp-doc .custom-block,
+.VPLocalSearchBox .shell,
+.pager-link,
+.VPDocAsideOutline,
+.VPFeature,
+.mermaid {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides VitePress's own radii, set by selectors of every specificity */
+  border-radius: 0 !important;
+}
+.vp-doc div[class*="language-"] {
+  border-left: 3px solid var(--wash-cyan);
+  box-shadow: var(--wash-print);
+}
+.vp-doc .custom-block {
+  border: 0;
+  border-left: 4px solid var(--vp-c-tip-1);
+  box-shadow: var(--wash-print);
+}
+.vp-doc .custom-block.warning {
+  border-left-color: var(--wash-gold);
+}
+.vp-doc .custom-block.danger {
+  border-left-color: var(--wash-magenta);
+}
+.vp-doc .custom-block.info {
+  border-left-color: var(--wash-cyan);
+}
+.vp-doc .custom-block-title {
+  font-family: var(--wash-label);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pager-link {
+  border-color: var(--vp-c-divider);
+  background: hsl(258 36% 11%);
+  box-shadow: var(--wash-print);
+}
+.pager-link:hover {
+  border-color: var(--wash-gold);
+}
+.pager-link .title {
+  font-family: var(--wash-display);
+  font-weight: 700;
+  font-size: 14px;
+}
+.VPDocAsideOutline .outline-title {
+  font-family: var(--wash-label);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--wash-gold);
+}
+.mermaid {
+  margin: 24px 0;
+  padding: 20px;
+  overflow-x: auto;
+  border: 1px solid var(--vp-c-divider);
+  border-top: 3px solid var(--wash-violet);
+  background: var(--vp-c-bg-soft);
+}
+.mermaid svg {
+  display: block;
+  margin-inline: auto;
+  min-width: 280px;
+}
+::selection {
+  background: hsl(322 100% 60% / 0.4);
 }
 :focus-visible {
-  outline: 3px solid var(--vp-c-brand-1);
+  outline: 3px solid var(--wash-violet);
   outline-offset: 3px;
 }
+
+/* After the hero rules, which share the .text class name */
+.VPSidebarItem.is-link > .item > .link:hover .text {
+  color: hsl(276 70% 32%);
+}
+
 @media (max-width: 640px) {
-  .VPNavBarTitle .title {
-    font-size: 12px;
+  .vp-doc h1 {
+    font-size: 24px;
+  }
+  .vp-doc h2 {
+    font-size: 18px;
   }
   .VPHero .tagline {
-    font-size: 17px;
+    font-size: 14px;
   }
 }

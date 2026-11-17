@@ -131,8 +131,8 @@ different: there, Join asks the lobby for a seat.
 
 ## Further reading
 
-The engine's Networking Guide (`docs/manual/guides/networking.md` in the engine
-repo) covers the underlying mechanics, and its Lobby Server guide
-(`docs/manual/guides/lobby-server.md`) covers accounts, rooms and results. This
+The engine's [Networking Guide](https://github.com/Higher-Standard-Games/shag/blob/main/docs/manual/guides/networking.md) covers
+the underlying mechanics, and its [Lobby Server guide](https://github.com/Higher-Standard-Games/shag/blob/main/docs/manual/guides/lobby-server.md)
+covers accounts, rooms and results. This
 manual's [Lobby, Rooms and Accounts](./lobby.md) page covers them from the
 player's side.

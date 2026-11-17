@@ -10,7 +10,7 @@
 - **Q3 weapon family** — blade (melee + charged projectile), riotgun, grenade launcher, rocket launcher, plasma gun, machinegun, voltaic, electrobolt.
 - **Server-authoritative netcode** — 125 Hz tick rate, client prediction + reconciliation, snapshot interpolation for remote players, lag compensation for hit detection.
 
-## What's In Right Now
+## What's In the Game
 
 | Area | Status |
 |------|--------|
@@ -22,8 +22,9 @@
 | Loadouts | FFA, Amphi and Search & Destroy spawn kits — blade + one primary + one secondary; changes apply at the next spawn |
 | Pickups | Server-authoritative active-set; CoD-style plate armor; health tiers with mega overheal; timed powerups |
 | Chat | Global (**T** / Enter) and team (**Y**) chat, scrollable history, per-match `/mute` and `/unmute`, recorded into demos |
-| Bots | Separate Bot Intelligence Server process, 4 difficulty tiers, BSP vision + NavGraph A* |
-| Demos | Server-side recording (`.shagdemo` binary), lobby demo list, in-game playback (normal + cinematic), deterministic re-sim verification |
+| Bots | Seated by the lobby and played in a child process per match; 4 difficulty tiers, BSP vision, NavGraph A*, a strategist that reads the match |
+| Campaign | Eight story operations against bots, unlocked one by one: comic cards, boss bots, a Survival operation and a finale; progress kept on your account |
+| Demos | Server-side recording (`.shagdemo` binary), lobby demo list, in-game playback (normal + cinematic), highlight reels and MP4 export, deterministic re-sim verification |
 | Lobby | Portable account keys; Public and Private rooms with map votes and chat; bots in Private rooms; one skill ladder per mode, gameplay stats and match history |
 | Spectating | Fly free or follow a player and see what they see; drop into a match under way while it has room |
 | Netcode | Dedicated server, fixed-rate authoritative physics (1 dt/tick), client prediction + reconciliation, lag-compensated hits, snapshot baselines, seats held through a dropped connection, input sanitizer, log-only anti-cheat telemetry |

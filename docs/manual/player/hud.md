@@ -178,7 +178,7 @@ Connection diagnostics. Three modes via `cl_netgraph`:
 | 1 | Text overlay: ping, snapshot rate, estimated snapshot gaps %, interp delay, command rate, prediction corrections, extra upload and download delay |
 | 2 | Mode 1 + a rolling graph of ping and snapshot gaps |
 
-Read the Engine Networking Guide (`docs/manual/guides/networking.md` in the engine repo) for what each number means and what's an acceptable range.
+Read the engine's [Networking Guide](https://github.com/Higher-Standard-Games/shag/blob/main/docs/manual/guides/networking.md) for what each number means and what's an acceptable range.
 
 ## Match State
 
@@ -199,8 +199,7 @@ attention:
 
 The timer counts down the time left. To count up from 0:00 instead (time
 played, running on through overtime), pick **Time played** for **Match clock**
-in Settings → Gameplay, or enter `cl_invertClock 1` in the console. It needs a
-server from v1.0.0-alpha or later; an older one keeps the countdown.
+in Settings → Gameplay, or enter `cl_invertClock 1` in the console.
 
 During warmup, the larger ready banner stays on one line. Its gold-cell text
 gently grows and shrinks while you still need to press **F4**, keeping the cell

@@ -96,7 +96,7 @@ Search & Destroy also leaves the Quad Damage out of the map entirely.
 
 ## Powerups
 
-Timed pickups that modify you until they run out. Currently one is implemented:
+Timed pickups that modify you until they run out. There is one:
 
 | Powerup | Effect | Duration | Respawn |
 |---------|--------|---------:|--------:|
@@ -198,4 +198,4 @@ other mode the ultra health.
 
 - [Weapons](./weapons.md) — per-weapon stats and ammo types
 - [HUD](./hud.md) — reading the weapon slots + ammo counter
-- The engine's Pickup System Guide (`docs/manual/guides/pickup-system.md` in the engine repo) — the engine-generic `Pickup` base class that `FPSPickup` extends
+- The engine's [Pickup System Guide](https://github.com/Higher-Standard-Games/shag/blob/main/docs/manual/guides/pickup-system.md) — the engine-generic `Pickup` base class that `FPSPickup` extends

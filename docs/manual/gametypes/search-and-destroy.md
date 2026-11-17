@@ -79,12 +79,9 @@ announcement when arming completes and the fuse starts.
 Teams are the usual **udon** and **soba**. Which one attacks is decided per
 half and swaps at halftime.
 
-Attackers spawn in the map's **beta** area and defenders in the **alpha** area,
-whichever team is currently attacking — this follows Warsow, whose
-`INITIAL_ATTACKERS = TEAM_ALPHA` names the alpha *team* as attackers but spawns
-them on `team_CTF_betaspawn`. The map data agrees: on wbomb2 the alpha spawns
-average ~3400 units from the two sites and beta's ~3800, so alpha is the side
-that starts nearer.
+Attackers spawn in the map's **beta** area and defenders in the **alpha**
+area, whichever team is attacking that half. The alpha spawns are the ones
+nearer the bomb sites, so the defenders start closer to the ground they hold.
 
 The bomb starts each round where the attackers spawn, dropped to the floor.
 
@@ -247,4 +244,4 @@ npm --prefix src/games/fps run net:server -- --map washoi_snd1 --gametype SnD
 - [Weapons](../player/weapons.md) — what each loadout choice does
 - [HUD](../player/hud.md) — reading the bomb objective and arm bar
 - The design notes, map survey and Warsow source this was ported from:
-  `docs/research/Search_And_Destroy.md` in the engine repo
+  [`docs/research/Search_And_Destroy.md`](https://github.com/Higher-Standard-Games/shag/blob/main/docs/research/Search_And_Destroy.md) in the engine repo

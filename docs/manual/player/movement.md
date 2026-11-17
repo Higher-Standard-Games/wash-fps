@@ -168,5 +168,5 @@ Falling too far hurts. Distance is measured **floor-to-floor** in map units (a n
 - **Don't hold W** during strafe jumps. The air-strafe gain comes from your *mouse* + *side keys*, not forward.
 - **Pre-jump before charging a wall-jump.** Your wall-jump uses the velocity you arrive with as the base.
 - **Crouchslide is for chaining, not braking.** The speed boost is your reward; if you slide into a wall you lose it instantly.
-- **Bunny-hop landing windows are tighter than they feel.** Practice on `aerowalk_b1` or similar parkour maps before competitive servers.
+- **Bunny-hop landing windows are tighter than they feel.** Practise them in a Private room of your own, or in Quick play against bots, before a ranked match.
 - **Movement is identical on client and server.** If something feels off, it's network jitter or packet loss, not your inputs being ignored — check NetGraph (see [HUD](./hud.md)).

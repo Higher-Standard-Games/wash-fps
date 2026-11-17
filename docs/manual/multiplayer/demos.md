@@ -126,7 +126,7 @@ Deterministic re-simulation checks use a separate **`.shagverify` bundle**, not 
 ordinary `.shagdemo` playback file. `npm --prefix src/games/fps run demo:verify -- <bundle.shagverify>`
 replays that bundle's commands and checks its recorded checksums.
 
-For full schema, read `src/shared/demo/DemoReader.ts` (TODO: extract this into a public doc page).
+For the full format, read [`src/shared/demo/DemoReader.ts`](https://github.com/Higher-Standard-Games/shag/blob/main/src/shared/demo/DemoReader.ts).
 
 ## Finding demos outside the console
 
@@ -226,9 +226,10 @@ and thirty minutes plus six times the match's length of processing. It stops on 
 unresolved projectile state, inconsistent traversals or graphics-context loss.
 WebGPU and other browser families are outside the development acceptance target.
 
-## Not yet
+## Limits
 
-- Console equivalents for the transport (jump-to-tick, speed); today they are the demo HUD's
-- Demo upload and remote sharing (demos are lobby-local)
-- Cinematic heuristic tuning; see [Demo Cinematic](../tools/demo-cinematic.md)
-- A recording opt-out
+- Seeking and playback speed are on the demo HUD only; the console has no
+  jump-to-tick or speed command.
+- Demos stay on the lobby that recorded them: there is no upload or sharing
+  between lobbies.
+- Every lobby match is recorded; there is no opt-out (see the terms of service).

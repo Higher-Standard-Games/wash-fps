@@ -79,8 +79,8 @@ integration. Run `npm --prefix src/games/fps run test:run` from the assembled ro
 | `simulation/FPSSimulation.ts` | Implements engine `Simulation<State, Input>` |
 | `server/GameServer.ts` | Wraps engine networking transports + tick loop |
 
-## Bot Intelligence Server
+## Bots
 
-The bot system runs as a separate Node.js process and lives in this repository's
-`bot/` directory, with startup in `cli/bot-server.ts`. See
-[Tools → Bot Server](../tools/bot-server.md).
+The bot system lives in this repository's `bot/` directory. The lobby runs a
+match's bots in a match runner (`cli/bot-runner.ts`); a separate bot server
+starts from `cli/bot-server.ts`. See [Tools → Bots](../tools/bot-server.md).

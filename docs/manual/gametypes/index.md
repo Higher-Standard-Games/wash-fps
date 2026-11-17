@@ -26,4 +26,4 @@ map washoi_amphi1 amphi
 The dedicated server takes the same set through `--gametype`, where `1v1` is
 also accepted for Duel and `bomb` or `searchanddestroy` for Search & Destroy.
 
-See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in the engine repo) for the developer command flow.
+See the engine's [Map Launching Guide](https://github.com/Higher-Standard-Games/shag/blob/main/docs/manual/guides/map-launching.md) for the developer command flow.

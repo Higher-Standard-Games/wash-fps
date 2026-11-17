@@ -4,6 +4,9 @@ hero:
   name: Washiki Washoi
   text: Learn the map. Own the fight.
   tagline: The player manual for fast movement, eight weapons, four lobby modes and your next match.
+  image:
+    src: /washoi-logo.webp
+    alt: Washiki Washoi
   actions:
     - theme: brand
       text: Your first match
@@ -33,7 +36,7 @@ features:
 
 **Washiki Washoi** is the reference arena FPS built on the [SHAG Engine](https://github.com/Higher-Standard-Games/shag). Q3/Warsow-style movement, server-authoritative combat, dedicated servers, lobby matchmaking, bots, demos.
 
-This manual covers the game. The engine that runs underneath it has its own manual in the SHAG repo under `docs/manual/`.
+This manual covers the game. The engine that runs underneath it has its own manual in the [SHAG repository](https://github.com/Higher-Standard-Games/shag/tree/main/docs/manual).
 
 ---
 
@@ -47,7 +50,7 @@ This manual covers the game. The engine that runs underneath it has its own manu
 | [Gametypes](./gametypes/) | Duel, Amphi, FFA, Search & Destroy |
 | [Multiplayer](./multiplayer/) | Lobby, rooms and accounts, connecting, chat, demos |
 | [Developer](./developer/) | Architecture, adding weapons + gametypes, server commands |
-| [Tools](./tools/) | Bot Intelligence Server, bot training, cinematic demo player |
+| [Tools](./tools/) | Bots, highlight reels and the cinematic demo player |
 | [FAQ](./faq/) | Troubleshooting |
 
 ---
@@ -59,7 +62,7 @@ This manual covers the game. The engine that runs underneath it has its own manu
 npm install
 npm --prefix src/games/fps run dev
 # In another terminal: npm --prefix src/games/fps run lobby:server
-# Open http://localhost:5173 and choose Play, a mode and a room
+# Open http://localhost:3000 and choose Play, a mode and a room
 ```
 
 For developer flows (running a local dedicated server, console commands, bot AI), see [Getting Started](./getting-started/).

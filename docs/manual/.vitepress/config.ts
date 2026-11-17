@@ -10,7 +10,9 @@ export default withMermaid(
     // Keep unreleased mode notes in source, outside the published site and search.
     srcExclude: ["gametypes/team-deathmatch.md"],
     outDir: "../../dist-docs",
-    appearance: "dark",
+    // The game has one look, dark; so has its manual
+    appearance: "force-dark",
+    head: [["link", { rel: "icon", type: "image/png", href: "/favicon-32x32.png" }]],
     mermaid: {
       securityLevel: "strict",
       theme: "base",
@@ -27,6 +29,8 @@ export default withMermaid(
     },
 
     themeConfig: {
+      logo: { src: "/washoi-mark.webp", alt: "Washiki Washoi" },
+      siteTitle: false,
       nav: [
         { text: "Home", link: "/" },
         { text: "Player Manual", link: "/player/" },
@@ -107,7 +111,7 @@ export default withMermaid(
             collapsed: true,
             items: [
               { text: "Overview", link: "/tools/" },
-              { text: "Bot Intelligence Server", link: "/tools/bot-server" },
+              { text: "Bots", link: "/tools/bot-server" },
               { text: "Demo Cinematic", link: "/tools/demo-cinematic" },
             ],
           },

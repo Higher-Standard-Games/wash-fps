@@ -1,32 +1,47 @@
-# Bot Intelligence Server
+# Bots
 
-Bots in Washiki Washoi run as a **separate Node.js process** that connects to game servers as real WebSocket clients. At the protocol level, a bot is indistinguishable from a human player.
+Bots in Washiki Washoi are network clients: each connects to its game server
+over WebSocket and plays through the same protocol as a person. At the
+protocol level a bot is indistinguishable from a human player.
 
 The bot system belongs to this game repository at `bot/`; in an assembled SHAG
-checkout that is `src/games/fps/bot/`. Its CLI is `cli/bot-server.ts`. Run commands
-from the assembled root so data and navigation-cache paths resolve there.
-The game-owned server build recipe produces `dist-server/bot-server.mjs`.
+checkout that is `src/games/fps/bot/`. Run commands from the assembled root so
+data and navigation-cache paths resolve there.
 
-Examples below start at the SHAG root. From `src/games/fps` you can instead use
-`npm run bot:server`; the launcher still uses the SHAG root as cwd. Dependencies
-are installed once at the SHAG root. `bot:server` builds its bundle before
-launching Node; `bot:server:dev` runs the source through `vite-node`.
+## Where bots run
 
-## Running
+**By default the lobby runs them.** `lobby:server` seats each invited bot
+itself, and when the match starts it hands that match's bots to a **match
+runner**, a child process that plays them (see [A process per
+match](#a-process-per-match)). Nothing else needs starting:
+
+```bash
+npm --prefix src/games/fps run lobby:server
+```
+
+**A separate bot server** is the alternative: `bot:server` holds the bots,
+and a lobby started with `--bot-server` asks it for them over its control
+port. It also boots an interactive console for tests, and can register with a
+lobby and queue for matches like a player.
 
 ```bash
 npm --prefix src/games/fps run bot:server
+npm --prefix src/games/fps run lobby:server -- --bot-server
 ```
 
-The bot server boots an interactive console. It can register itself with a lobby, queue for matches like a human player, and play autonomously.
+From `src/games/fps`, `npm run bot:server` does the same; the launcher keeps
+the SHAG root as the working directory. `bot:server` builds its bundle
+(`dist-server/bot-server.mjs`) before launching Node; `bot:server:dev` runs the
+source through `vite-node`.
 
-### The lobby and the shared secret
+### The shared secret
 
-The lobby, the bot server and the game servers run on one machine and share a secret:
-- **Where it comes from:** `BOT_SECRET` when it's set. Otherwise the first process to start writes one to `<data-dir>/bot-secret` (the data directory is `--data-dir`, else `SERVER_DATA_DIR`, else `server-data/` at the repo root). Start both from the same folder, or give them the same `--data-dir`.
-- **The control port:** the lobby sends the secret when it asks for a bot. The bot server's control port (9100) listens on `127.0.0.1` only and closes any connection without it.
-- **Bot logins:** lobby bots authenticate with the shared service secret, not a
-  human account key. Standard difficulty presets have rating identities for
+Bots log in to the lobby with a secret shared by the lobby, the bot runners
+and any bot server, not with a player's account key:
+
+- **Where it comes from:** `BOT_SECRET` when it's set. Otherwise the first process to start writes one to `<data-dir>/bot-secret` (the data directory is `--data-dir`, else `SERVER_DATA_DIR`, else `server-data/` at the repo root). Start them from the same folder, or give them the same `--data-dir`.
+- **The control port:** a lobby started with `--bot-server` sends the secret when it asks for a bot. The bot server's control port (9100, `--port`) listens on `127.0.0.1` only and closes any connection without it.
+- **Bot accounts:** standard difficulty presets have rating identities for
   private matches. Players cannot claim a bot's reserved name.
 
 ## Architecture
@@ -106,8 +121,7 @@ follows its target's motion. A turn over 45° waits for the preset's reaction
 time first, drawn log-normal round it as people's are (one wait in ten is a third
 longer, one in a hundred nearly twice as long), and some of those turns overshoot
 by 4–12% and come back: about one in six at full aim accuracy, two in five on
-Easy. The aim error wanders slowly, about once a second, with the
-spread the old per-decision noise had. Movement follows the wanted heading at
+Easy. The aim error wanders slowly, drifting about once a second. Movement follows the wanted heading at
 once, so a bot never runs where its view happens to point mid-turn. While
 walking a route the bot looks about 250 units ahead along it; in a jump pad's
 flight, and stepping onto a pad or teleporter, it keeps its view rather than
@@ -227,8 +241,8 @@ health.
 Bots learn across matches through a baseline, not through memory of anyone.
 At the end of each match a bot hands in a report (map, gametype, preset,
 score, its fights by 256-unit map cell and whether against a person or a bot,
-and each strategy episode with its payoff); the bot server keeps them in
-`<data-dir>/bot-intel.db` (`--no-intel` to keep none) for 90 days.
+and each strategy episode with its payoff); the lobby (or the bot server that seated it) keeps them in
+`<data-dir>/bot-intel.db` for 90 days (a bot server started with `--no-intel` keeps none).
 `npm --prefix src/games/fps run bot:intel` distils them, on demand, into
 `config/bot-intel/<map>.json`: per gametype, how fights went in each cell and
 what each strategy paid for each diagnosis. Review and commit it like a route
@@ -248,8 +262,8 @@ them), gracious or mad after being killed by one, a sulk after three deaths in a
 row, and "gg" in the last 30 seconds. The lines are English with a few Finnish
 ones. Each bot's name sets how chatty it is and how sore a loser. Lines are about
 humans only, so bot-only matches stay quiet. Each bot says at most one line per
-20 s, all bots on a bot server at most one per 5 s, and each line arrives
-0.8–2.5 s after its moment, as if typed. Set `BOT_CHAT=0` on the bot server to turn it off; training
+20 s, all the bots in a process (a match runner, so a match) at most one per 5 s, and each line arrives
+0.8–2.5 s after its moment, as if typed. Set `BOT_CHAT=0` where the bots run (the lobby, or the bot server) to turn it off; training
 runs always have it off.
 
 ## The brain
@@ -298,9 +312,9 @@ secret, not a human account key; see [Ranked matches](../multiplayer/lobby.md#ra
 
 ### A process per match
 
-The lobby seats bots itself by default (see the lobby guide, "Bots without a
-bot server"); a `bot:server` does the same with the seats it holds. Each
-bot's seat stays in its room but its match plays elsewhere. When the match starts, each bot's game connection
+The lobby seats bots itself by default; a `bot:server` does the same with the
+seats it holds. Each bot's seat stays in its room but its match plays
+elsewhere. When the match starts, each bot's game connection
 goes to a **match runner** for that game server: a child process
 (`cli/bot-runner.ts`, `dist-server/bot-runner.mjs` in the bundle) that loads
 the map's vision and nav graph once for the match's bots and exits once its
@@ -313,10 +327,3 @@ lobby and `bot-intel.db`.
 A bundled runner playing ten bots on `washoi_snd1` holds about 175 MB: runners start with a 4 MB young generation (`RUNNER_NODE_FLAGS`), which cuts the heap V8 reserves from about 250 MB to 85 MB at the same snapshot cost, and trace the world in WebAssembly (`src/engine/physics/CompiledWorldTrace.ts`). `SHAG_DEBUG=memory` makes a runner log its memory every 10 s. A bot
 server started with `--in-process` plays every match's bots in itself,
 sharing each map's vision for as long as it runs.
-
-## TODO
-
-- Per-difficulty weapon profile overrides
-- Configuration file format
-- Logging + telemetry expectations
-- Production deployment patterns

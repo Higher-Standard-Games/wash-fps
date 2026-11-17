@@ -16,12 +16,10 @@ Game commands belong to the package in `src/games/fps`. From the SHAG root:
 
 ```powershell
 npm --prefix src/games/fps run lobby:server
-npm --prefix src/games/fps run bot:server
 ```
 
-Run these in separate terminals. Alternatively, enter `src/games/fps` and use
-`npm run lobby:server` or `npm run bot:server`. Both forms use the SHAG root for
-data and build output. Install dependencies at the SHAG root, once.
+Alternatively, enter `src/games/fps` and use `npm run lobby:server`. Both forms
+use the SHAG root for data and build output. Install dependencies at the SHAG root, once.
 See [Starting servers](../developer/server-commands.md#starting-servers).
 
 ## The lobby says "Offline"
@@ -63,13 +61,19 @@ These messages mean the lobby server you are connected to doesn't provide that f
 
 ## Bots don't join
 
-The bot server and the lobby share a secret, and the bot server's control port (9100) only listens on `127.0.0.1`.
+The lobby plays each match's bots in a **match runner**, a child process
+built beside the lobby server (`dist-server/bot-runner.mjs`). A lobby that
+cannot find it refuses to start and says so: run `lobby:server` (it builds
+the bundle first), or start it with `--bot-server` to use a bot server instead.
+
+With `--bot-server`, the bot server and the lobby share a secret, and the bot
+server's control port (9100) only listens on `127.0.0.1`:
 
 - Start the lobby and the bot server **from the same folder**, or give both the same `--data-dir`, or set `BOT_SECRET` for both.
 - Run them on the same machine.
-- Remember the bot server is its own process: `npm --prefix src/games/fps run bot:server`.
+- The bot server is its own process: `npm --prefix src/games/fps run bot:server`.
 
-See [Bot Server](../tools/bot-server.md#the-lobby-and-the-shared-secret).
+See [Bots](../tools/bot-server.md#the-shared-secret).
 
 ## Connecting to a dedicated server
 

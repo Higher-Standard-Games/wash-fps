@@ -1,6 +1,6 @@
 # Weapons
 
-Eight weapons, organized by slot. Numbers below are server-authoritative defaults from this game's `shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `shared/entities/definitions/projectiles/*.ts`. Balance is still evolving — file an issue if anything feels off.
+Eight weapons, organized by slot. Numbers below are server-authoritative defaults from this game's `shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `shared/entities/definitions/projectiles/*.ts`. If anything feels off, [open an issue](https://github.com/Higher-Standard-Games/wash-fps/issues).
 
 Clip weapons play a short mechanical cue when a reload starts. Your own weapon
 and a followed player's weapon use first-person audio; other players' reloads
@@ -28,11 +28,11 @@ works with developer mode off and does not change your kit or respawn you.
 | 7 | **Voltaic** | VT | 7 / tick | 20/s | lasers (clip) | Chain-lightning beam; unstable at the hip, precise under ADS |
 | 8 | **Electrobolt** | EB | 75 | 0.8/s | bolts (pool) | Hitscan rail; long reload |
 
-Fire rates were retuned for the corrected 125 Hz server tick (v0.9.16): the rocket/grenade launcher and riotgun all sit at **1.25/s (800 ms)**.
+The rocket launcher, grenade launcher and riotgun share one rhythm: **1.25 shots/s (800 ms)**.
 
 ## Slot 1 — Blade
 
-The default melee weapon. Replaces the older "gunblade" in the Q3 lineage.
+The default melee weapon, always in your hand.
 
 - **Primary fire** — fast melee slash. 80 damage, ~100 unit reach, 500 ms cooldown (`fireRate: 2.0`).
 - **Step-in dash** — an accepted swing lunges you ~64 units forward only while you hold forward and are already moving forward relative to your view (server-authoritative, `meleeDashDistance`). Forward diagonal movement qualifies; stationary, backward and sideways-only movement do not. Holding forward and back together cancels the dash. It's a horizontal position step, BSP-clamped against walls, with no lift or extra velocity.

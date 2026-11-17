@@ -6,7 +6,7 @@ Common questions, gotchas, and troubleshooting.
 
 The engine command `map` delegates to a launcher that the FPS game registers at boot. Two possibilities:
 
-1. The fps submodule isn't actually loaded / didn't register the launcher → make sure `npm --prefix src/games/fps run dev` starts cleanly, no errors in browser console, and `src/main.ts` is calling `registerGameplayMapLauncher(fpsModule.fpsMapLauncher)`.
+1. The fps submodule isn't actually loaded / didn't register the launcher → make sure `npm --prefix src/games/fps run dev` starts cleanly, no errors in browser console, and `client/registerServices.ts` ran `registerGameplayMapLauncher(fpsModule.fpsMapLauncher)`.
 2. You're running in headless CLI mode (`npm --prefix src/games/fps run cli:game`) which intentionally doesn't auto-register the launcher → use `bsp load <name>` instead, or call `registerFpsCommands()` + `registerGameplayMapLauncher()` manually in your script.
 
 ## "Why does `map washoi_dm2` say 'Timed out waiting for lobby server to spawn'?"
@@ -24,7 +24,7 @@ Then retry `map washoi_dm2`.
 Usually one of:
 
 - The PK3 data isn't loaded — server can't find the map, falls into a loop trying.
-- Too many bots — bots add real CPU load; tune `bot:server` count.
+- Too many bots — bots add real CPU load on the machine that runs them (the lobby's match runners, or a bot server).
 - Tick rate misconfigured (`--tickrate`) — default is 125 Hz; lower if hardware can't keep up.
 
 ## "How do I disable the lobby's loopback-only dev-spawn restriction?"
@@ -36,7 +36,7 @@ You can't, and you shouldn't. Dev-spawn is a developer affordance, not a public 
 Bots are available in **Private** rooms. The room chooses a standard preset near
 your rating, with medium as the new-player fallback. Explicit protocol
 presets are easy, medium, hard and insane. Presets live in `BotConfig.ts` in the
-game's `bot/` directory; [Bot Server](../tools/bot-server.md#difficulty-tiers) lists the tiers.
+game's `bot/` directory; [Bots](../tools/bot-server.md#difficulty-tiers) lists the tiers.
 The dedicated server's `spawn_bots` command makes simple bots with no tiers; see
 [Server Commands](../developer/server-commands.md).
 
@@ -64,7 +64,7 @@ decision. See [Ranked matches](../multiplayer/lobby.md#ranked-matches).
 
 Likely causes:
 
-- The demo was recorded on a different protocol version than your current client. The protocol is documented in the engine's Networking Guide (`docs/manual/guides/networking.md` in the engine repo); demo back-compat is governed by `protocolVersion` in the demo header.
+- The demo was recorded on a different protocol version than your current client. The protocol is documented in the engine's [Networking Guide](https://github.com/Higher-Standard-Games/shag/blob/main/docs/manual/guides/networking.md); demo back-compat is governed by `protocolVersion` in the demo header.
 - The map referenced in the demo isn't installed locally — put the PK3 in `public/data/`.
 
 ## "Where is the map editor documented?"
