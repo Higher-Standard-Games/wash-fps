@@ -60,6 +60,18 @@ describe("match runners", () => {
     expect(runners.status()).toEqual([]);
   });
 
+  it("fails a bot whose runner drops its channel without exiting", async () => {
+    const runners = pool();
+    const log: string[] = [];
+    await expect(
+      runners.launch("ws://a", { name: "Hangs up", difficulty: "medium" }, undefined, recorder(log, "Hangs up")),
+    ).rejects.toThrow("disconnected");
+    // The next bot for that game server gets a runner that works
+    const next = await runners.launch("ws://a", { name: "A1", difficulty: "medium" }, undefined, recorder(log, "A1"));
+    expect(next.playerId).toBe("player_1");
+    await runners.stop();
+  });
+
   it("starts a new runner for a bot that reaches one as it ends", async () => {
     const runners = pool();
     const log: string[] = [];

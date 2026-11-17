@@ -8,6 +8,12 @@ process.on("message", (message) => {
   if (message.type === "add" && closing) {
     process.send({ type: "failed", id: message.id, error: "Match runner closing" });
   } else if (message.type === "add") {
+    if (message.options.name === "Hangs up") {
+      // Drop the channel but stay up a while, as a runner stuck shutting down
+      process.disconnect();
+      setTimeout(() => process.exit(0), 2000);
+      return;
+    }
     if (message.options.name === "Refused") {
       process.send({ type: "failed", id: message.id, error: "refused" });
       return;

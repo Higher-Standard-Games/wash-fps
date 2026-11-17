@@ -191,6 +191,9 @@ export class MatchRunnerPool {
       console.log(`[BotServer] Match runner ${child.pid} for ${serverUrl} exited (${signal ?? code})`);
       ended("exited");
     });
+    // Without its channel a runner can take no bots and report none, and it
+    // shuts down: its bots are gone now, though the process may linger a moment
+    child.on("disconnect", () => ended("disconnected"));
     child.on("error", (error) => {
       console.error(`[BotServer] Match runner for ${serverUrl}: ${error.message}`);
       // A runner that never started sends no exit: its bots would wait for ever
