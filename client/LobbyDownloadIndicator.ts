@@ -63,8 +63,15 @@ export class LobbyDownloadIndicator {
     document.addEventListener("pointerdown", this.outside, true);
   }
 
+  /** What the list last showed, so an unchanged status is not rebuilt four times a second. */
+  private rendered = "";
+
   private render(): void {
     const status = LobbyAssetPreparation.shared.status();
+    this.pause.checked = PackageStore.shared.paused;
+    const shown = JSON.stringify([status.label, status.detail, status.packages]);
+    if (shown === this.rendered) return;
+    this.rendered = shown;
     this.summary.textContent = status.label;
     this.text.textContent = status.detail;
     this.packages.replaceChildren(
@@ -78,7 +85,6 @@ export class LobbyDownloadIndicator {
         return row;
       }),
     );
-    this.pause.checked = PackageStore.shared.paused;
   }
 
   destroy(): void {

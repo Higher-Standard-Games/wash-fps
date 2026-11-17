@@ -35,3 +35,17 @@ it("dismisses on outside presses, keeps inside controls open, and removes its do
     indicator.destroy();
   }
 });
+
+it("rebuilds its package list only when the status changes", () => {
+  vi.useFakeTimers();
+  const indicator = new LobbyDownloadIndicator();
+  try {
+    const list = indicator.root.querySelector("ul, ol")!;
+    const replace = vi.spyOn(list, "replaceChildren");
+    vi.advanceTimersByTime(2_000);
+    expect(replace).not.toHaveBeenCalled();
+  } finally {
+    indicator.destroy();
+    vi.useRealTimers();
+  }
+});
