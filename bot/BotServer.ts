@@ -114,6 +114,9 @@ export function botOptionsFor(options: Partial<BotOptions> | undefined): BotOpti
   };
 }
 
+/** How many times a map's nav graph is built before its bots play on without one. */
+const NAV_BUILD_ATTEMPTS = 3;
+
 export class BotServer {
   private _wss: WebSocketServer | null = null;
   private _bots: Map<string, BotClient> = new Map();
@@ -129,6 +132,8 @@ export class BotServer {
   private _visionLoading: Map<string, Promise<BotVision | null>> = new Map();
   /** Nav graphs being read or built, by map: one load each, however many bots ask. */
   private _navLoading: Map<string, Promise<void>> = new Map();
+  /** Nav graph builds that failed, by map: a later bot tries again until NAV_BUILD_ATTEMPTS. */
+  private readonly _navFailures = new Map<string, number>();
 
   // Versioned on-disk cache for deterministic map geometry analysis.
   private _navCacheStore: BotNavCacheStore = new BotNavCacheStore();
@@ -361,6 +366,9 @@ export class BotServer {
       bot.setVision(cached.fork());
       bot.setNavGraph(this._navGraphCache.get(mapName) ?? null);
       console.log(`[BotServer] Vision (cached) → ${bot.name} on map "${mapName}"`);
+      // A nav graph whose build failed is tried again for a bot that comes later, a few times
+      if (!this._navGraphCache.has(mapName) && (this._navFailures.get(mapName) ?? 0) < NAV_BUILD_ATTEMPTS)
+        background(this._loadNavGraph(mapName, cached), "BotServer nav graph");
       return;
     }
 
@@ -416,7 +424,10 @@ export class BotServer {
       let navGraph = this._navCacheStore.load(mapName, vision.mapKnowledge.mapFingerprint);
       console.log(`[BotServer] NavGraph cache ${this._navCacheStore.lastDiagnostic}`);
       navGraph ??= await buildNavGraph(mapName, vision);
-      if (!navGraph) return;
+      if (!navGraph) {
+        this._navFailures.set(mapName, (this._navFailures.get(mapName) ?? 0) + 1);
+        return;
+      }
       // After the cache: learned routes live in config/bot-routes and change
       // without the map changing, so they are never cached.
       const learned = navGraph.addLearnedRoutes(
