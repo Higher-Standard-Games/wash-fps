@@ -1006,9 +1006,6 @@ export class MatchState {
   // ========================================================================
 
   /**
-   * Create a lightweight snapshot for sending to clients
-   */
-  /**
    * Seconds until the next round goes live, through the whole gap between
    * rounds: the round end, then the next round's freeze. Undefined outside it,
    * including the first round's freeze, which follows no round.
@@ -1021,6 +1018,7 @@ export class MatchState {
     return undefined;
   }
 
+  /** Create a lightweight snapshot for sending to clients */
   toSnapshot(): MatchStateSnapshot {
     const nextRoundIn = this.nextRoundIn();
     // Convert Maps to Records for simpler JSON serialization
