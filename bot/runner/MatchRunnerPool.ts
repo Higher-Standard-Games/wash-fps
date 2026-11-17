@@ -74,6 +74,8 @@ interface RunnerProcess {
   serverUrl: string;
   bots: Map<string, { bot: RunnerBot; events: RunnerBotEvents }>;
   pending: Map<string, { resolve: (playerId: string | null) => void; reject: (error: Error) => void }>;
+  /** It said it is ending, or it has exited: new bots go to a new runner. */
+  closing: boolean;
 }
 
 let nextId = 0;
@@ -92,14 +94,42 @@ export class MatchRunnerPool {
     }));
   }
 
-  /** Play `options`' bot on `serverUrl`, in that game server's runner, started if it has none. */
+  /**
+   * Play `options`' bot on `serverUrl`, in that game server's runner, started
+   * if it has none. A runner ending as the bot arrives (its last bot just
+   * left, and a new match took the same address) refuses it; the bot then
+   * goes to a new runner.
+   */
   async launch(
     serverUrl: string,
     options: BotOptions,
     admissionTicket: string | undefined,
     events: RunnerBotEvents,
   ): Promise<RunnerBot> {
-    const runner = this.runners.get(serverUrl) ?? this.start(serverUrl);
+    const current = this.runners.get(serverUrl);
+    const runner = current && !current.closing ? current : this.start(serverUrl);
+    try {
+      return await this.launchIn(runner, serverUrl, options, admissionTicket, events);
+    } catch (error) {
+      if (!runner.closing) throw error;
+      const fresh = this.runners.get(serverUrl);
+      return this.launchIn(
+        fresh && !fresh.closing ? fresh : this.start(serverUrl),
+        serverUrl,
+        options,
+        admissionTicket,
+        events,
+      );
+    }
+  }
+
+  private async launchIn(
+    runner: RunnerProcess,
+    serverUrl: string,
+    options: BotOptions,
+    admissionTicket: string | undefined,
+    events: RunnerBotEvents,
+  ): Promise<RunnerBot> {
     const id = `runner_bot_${++nextId}`;
     let playerId: string | null = null;
     const bot: RunnerBot = {
@@ -145,11 +175,12 @@ export class MatchRunnerPool {
       stdio: ["ignore", "inherit", "inherit", "ipc"],
       serialization: "advanced",
     });
-    const runner: RunnerProcess = { child, serverUrl, bots: new Map(), pending: new Map() };
+    const runner: RunnerProcess = { child, serverUrl, bots: new Map(), pending: new Map(), closing: false };
     this.runners.set(serverUrl, runner);
     console.log(`[BotServer] Match runner ${child.pid} started for ${serverUrl}`);
     child.on("message", (message: FromRunner) => this.receive(runner, message));
     child.on("exit", (code, signal) => {
+      runner.closing = true;
       if (this.runners.get(serverUrl) === runner) this.runners.delete(serverUrl);
       console.log(`[BotServer] Match runner ${child.pid} for ${serverUrl} exited (${signal ?? code})`);
       for (const { reject } of runner.pending.values()) reject(new Error("Match runner exited"));
@@ -162,6 +193,11 @@ export class MatchRunnerPool {
   }
 
   private receive(runner: RunnerProcess, message: FromRunner): void {
+    if (message.type === "closing") {
+      runner.closing = true;
+      if (this.runners.get(runner.serverUrl) === runner) this.runners.delete(runner.serverUrl);
+      return;
+    }
     const waiting = runner.pending.get(message.id);
     const seat = runner.bots.get(message.id);
     switch (message.type) {

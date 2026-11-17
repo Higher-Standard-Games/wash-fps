@@ -38,6 +38,7 @@ function main(): void {
   const server = new BotServer(0);
   const bots = new Map<string, BotClient>();
   let adding = 0;
+  let closing = false;
   let exitTimer: ReturnType<typeof setTimeout> | null = null;
   const report = (message: FromRunner) => {
     if (process.connected) process.send?.(message);
@@ -50,11 +51,19 @@ function main(): void {
     }, ms);
   };
   const shutDown = async (code: number) => {
+    if (closing) return;
+    closing = true;
+    // New bots go to a new runner from here on; any already sent are refused below
+    report({ type: "closing" });
     await server.removeAllBots();
     process.exit(code);
   };
 
   const add = async (message: Extract<ToRunner, { type: "add" }>) => {
+    if (closing) {
+      report({ type: "failed", id: message.id, error: "Match runner closing" });
+      return;
+    }
     if (exitTimer) clearTimeout(exitTimer);
     exitTimer = null;
     adding++;

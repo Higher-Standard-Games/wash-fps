@@ -21,4 +21,6 @@ export type FromRunner =
   | { type: "failed"; id: string; error: string }
   | { type: "reference"; id: string; reference: BotReference }
   | { type: "report"; id: string; report: MatchReport }
-  | { type: "disconnected"; id: string };
+  | { type: "disconnected"; id: string }
+  /** The runner is ending: it takes no more bots, and refuses any still on the way. */
+  | { type: "closing" };

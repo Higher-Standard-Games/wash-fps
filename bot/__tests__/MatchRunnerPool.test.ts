@@ -50,4 +50,20 @@ describe("match runners", () => {
     // A bot disposed by its seat is not reported back as disconnected.
     expect(log).toEqual(["A1 reference medium"]);
   });
+
+  it("starts a new runner for a bot that reaches one as it ends", async () => {
+    const runners = pool();
+    const log: string[] = [];
+    const first = await runners.launch("ws://a", { name: "A1", difficulty: "medium" }, undefined, recorder(log, "A1"));
+    const firstPid = runners.status()[0].pid;
+    // The runner's last bot leaves, and the next match on the same address seats a bot at once
+    await first.dispose();
+    const next = await runners.launch("ws://a", { name: "A2", difficulty: "medium" }, undefined, recorder(log, "A2"));
+    expect(next.playerId).toBe("player_1");
+    const status = runners.status();
+    expect(status.map((s) => s.bots)).toEqual([["A2"]]);
+    expect(status[0].pid).not.toBe(firstPid);
+    await runners.stop();
+    expect(await exited(runners)).toBe(true);
+  });
 });
