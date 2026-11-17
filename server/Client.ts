@@ -96,6 +96,8 @@ export interface ClientInfo {
   lastRespawnReqMs?: number;
   /** Last timeout or time-in call, for its rate limit. */
   lastPauseCallMs?: number;
+  /** The loadout last logged for this client, so a resent choice is not logged again. */
+  loggedLoadout?: string;
   /** Wall-clock (performance.now) of the last accepted team/spectate switch. */
   lastTeamSwitchMs?: number;
   /** When the last clock-sync ping was answered (performance.now), for its rate limit. */

@@ -16,6 +16,7 @@
  *   telemetry    one [Telemetry] line per playing client every 5 s (jitter, loss, aim, strikes)
  *   spawn        respawn requests, the spawn point picked and the respawn itself
  *   kills        one line per kill
+ *   chat         each chat line, with its sender
  *   bot          bot server: each bot's status line, its deaths and respawns
  *   setup        a match's configuration: spawn points, collision, PVS, pickups, tick loop
  *   memory       a bot match runner's memory, every 10 s (cli/bot-runner.ts)
@@ -37,6 +38,7 @@ export type DebugTopic =
   | "telemetry"
   | "spawn"
   | "kills"
+  | "chat"
   | "bot"
   | "setup"
   | "memory";

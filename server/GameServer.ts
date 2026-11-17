@@ -1652,14 +1652,20 @@ export class GameServer {
     const { primary, secondary } = MessageCodec.decodeSetLoadout(data);
     const choice = parseLoadout(primary, secondary);
     if (!choice) {
-      console.warn(`[GameServer] Player ${client.playerId} sent an unknown loadout: ${primary}/${secondary}`);
+      log.warnRateLimited(
+        "GameServer",
+        `Player ${client.playerId} sent an unknown loadout: ${String(primary).slice(0, 32)}/${String(secondary).slice(0, 32)}`,
+      );
       return;
     }
 
     const gametype = this.gametypeController.getGametype();
     if (!gametype.setPlayerLoadout(client.playerId, choice)) return;
+    const described = describeLoadout(choice);
+    if (described === client.loggedLoadout) return;
+    client.loggedLoadout = described;
     const when = gametype.getMatchConfig().loadouts === "respawn" ? "next spawn" : "next round";
-    console.log(`[GameServer] Player ${client.playerId} loadout → ${describeLoadout(choice)} (from ${when})`);
+    console.log(`[GameServer] Player ${client.playerId} loadout → ${described} (from ${when})`);
   }
 
   /**
@@ -1711,7 +1717,7 @@ export class GameServer {
     const located = text.includes("%L") ? text.split("%L").join(this.locationOf(client.entityId) ?? "") : text;
     const filteredText = filterChatText(located, GameServer.CHAT_MAX_LENGTH);
     if (teamOnly) this.gametypeController.getGametype().onTeamChat(client.entityId as number, team, filteredText);
-    console.log(`[Chat] ${client.playerName}: ${filteredText}`);
+    debugLog("chat", () => `[Chat] ${client.playerName}${teamOnly ? " (team)" : ""}: ${filteredText}`);
     this.pendingChatEvents.push({
       senderId: toClientKey(client.entityId),
       senderName: client.playerName,
@@ -2115,7 +2121,8 @@ export class GameServer {
       manualPick = false;
     }
     if (!client.isSpectator) {
-      console.log(`[GameServer] Player ${client.playerId} tried to JoinGame but is already playing`);
+      // Client-sent and repeatable: one line per 5 s however often it comes
+      log.warnRateLimited("GameServer", `Player ${client.playerId} tried to JoinGame but is already playing`);
       return;
     }
     // S&D and Amphi must not create a live entity until the reliable loadout
@@ -2264,7 +2271,7 @@ export class GameServer {
     if (!client) return;
     client.initialLoadUntilMs = undefined;
     if (client.isSpectator) {
-      console.log(`[GameServer] Player ${client.playerId} tried to Spectate but is already spectating`);
+      log.warnRateLimited("GameServer", `Player ${client.playerId} tried to Spectate but is already spectating`);
       return;
     }
     // Never rate-limited: the client switches to the spectator camera as soon as

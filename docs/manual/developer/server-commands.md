@@ -133,6 +133,7 @@ SHAG_DEBUG=phys,kb npm --prefix src/games/fps run net:server
 | `telemetry` | One line per playing client every 5 s: jitter, loss, aim and strikes |
 | `spawn` | Respawn requests, the spawn point picked and the respawn |
 | `kills` | One line per kill |
+| `chat` | Each chat line, with its sender |
 | `bot` | Bot server and match runners: each bot's status line, deaths and respawns |
 | `setup` | A match's configuration: spawn points, collision, PVS, pickups and the tick loop |
 
