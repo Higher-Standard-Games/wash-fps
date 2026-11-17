@@ -192,9 +192,10 @@ function drawStamp(
 // ── Scene tag ─────────────────────────────────────────────────────────────────
 
 /**
- * Who and what, as a comic caption in the lower left: the play in ink on a
- * gold box, the player's name on a paper box pinned over its corner, both
- * with a hard ink shadow. It slides in from the left and drops away at its end.
+ * Who and what, as a comic caption in the lower right, clear of the kill feed
+ * and chat on the left: the play in ink on a gold box, the player's name on a
+ * paper box pinned over its corner, both with a hard ink shadow. It slides in
+ * from the right and drops away at its end.
  */
 function drawTag(
   context: CanvasRenderingContext2D,
@@ -209,19 +210,26 @@ function drawTag(
   if (enter <= 0 || leave <= 0) return;
   const room = width * 0.42;
 
+  // Both boxes are measured first: the caption is placed by its right edge
+  const what = fitText(context, tag.what.toUpperCase(), 46 * unit, room);
+  const padX = 26 * unit;
+  const whatW = what.width + padX * 2;
+  const whatH = what.size + 44 * unit;
+  const who = fitText(context, tag.who, 28 * unit, room * 0.8);
+  const whoW = who.width + 36 * unit;
+  const whoH = who.size + 22 * unit;
+  const whoX = -14 * unit;
+  const span = Math.max(whatW, whoX + whoW) + 8 * unit;
+
   context.save();
-  const left = 64 * unit;
+  const left = width - 64 * unit - span;
   const bottom = height - 150 * unit;
-  const slide = (1 - easeOutBack(enter)) * -(room + 120 * unit) + (1 - leave) * 40 * unit;
+  const slide = (1 - easeOutBack(enter)) * (room + 120 * unit) - (1 - leave) * 40 * unit;
   context.globalAlpha = Math.min(1, leave * 1.5);
   context.translate(left + slide, bottom + (1 - leave) * 30 * unit);
   context.rotate(-0.045);
 
   // The play, on gold
-  const what = fitText(context, tag.what.toUpperCase(), 46 * unit, room);
-  const padX = 26 * unit;
-  const whatW = what.width + padX * 2;
-  const whatH = what.size + 44 * unit;
   captionBox(context, 0, -whatH, whatW, whatH, GOLD, unit);
   context.save();
   // A little below the middle, clear of the name box over the top edge
@@ -236,14 +244,10 @@ function drawTag(
   // The player, on paper, pinned over its top-left corner a beat later
   const drop = Math.max(0, Math.min(1, (t - TAG_IN_MS * 0.4) / TAG_IN_MS));
   if (drop > 0) {
-    const who = fitText(context, tag.who, 28 * unit, room * 0.8);
-    const whoW = who.width + 36 * unit;
-    const whoH = who.size + 22 * unit;
-    const x = -14 * unit;
     const y = -whatH - whoH + 6 * unit - (1 - easeOutBack(drop)) * 24 * unit;
     context.save();
     context.globalAlpha *= drop;
-    context.translate(x, y);
+    context.translate(whoX, y);
     context.rotate(0.03);
     captionBox(context, 0, 0, whoW, whoH, PAPER, unit);
     context.font = who.font;

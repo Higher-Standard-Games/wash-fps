@@ -76,7 +76,7 @@ Three frag scenes of a reel end on a **freeze frame** (every frag scene, when it
 
 ### Scene tag
 
-A quarter of a second into each scene, a comic caption slides into the lower left for about three seconds: the player's name on a paper box over the play on a gold one (**AIR ROCKET**, **TRIPLE KILL**, **4-FRAG RUN**, **WALL CLIMB**, **ROCKET FRAG**, ...). It names the player whose play it is and nothing more; it does not come back for the scene's later shots, and a freeze frame's caption replaces it.
+A quarter of a second into each scene, a comic caption slides into the lower right, clear of the kill feed and chat, for about three seconds: the player's name on a paper box over the play on a gold one (**AIR ROCKET**, **TRIPLE KILL**, **4-FRAG RUN**, **WALL CLIMB**, **ROCKET FRAG**, ...). It names the player whose play it is and nothing more; it does not come back for the scene's later shots, and a freeze frame's caption replaces it.
 
 The speed lines, freeze frames, frag counters and scene tags are drawn by the same code in the demo viewer and in an exported video, so a video shows what the viewer shows.
 
