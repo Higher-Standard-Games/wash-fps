@@ -59,4 +59,22 @@ describe("round intermission", () => {
     expect(overlay.getElement().textContent).not.toContain("Nobody");
     overlay.destroy();
   });
+
+  it("puts Soba left and Udon right, as the scoreboard does", () => {
+    MatchStateManager.getInstance().reset();
+    const overlay = new FPSRoundResult();
+    const roundResult = { winner: "soba", winnerName: "Cartel_King", reason: "eliminated", round: 6 };
+    matchState({
+      phase: MatchPhase.RoundEnd,
+      round: 6,
+      timeRemaining: 4,
+      roundResult,
+      nextRoundIn: 9,
+      teamScores: { udon: 2, soba: 4, spectator: 0 },
+    });
+    overlay.update({} as never);
+    const score = overlay.getElement().querySelector(".fps-round-result-score")?.textContent;
+    expect(score).toBe("Cartel_King4:2Player_5937");
+    overlay.destroy();
+  });
 });

@@ -115,3 +115,13 @@ it("distinguishes team input and /say_team from ordinary chat", () => {
   submit("gg");
   expect(sent).toHaveBeenLastCalledWith("gg");
 });
+
+it("gives the cursor back to an open talk line that lost it", () => {
+  const input = document.querySelector("input")!;
+  expect(chat.refocusInput()).toBe(false);
+  input.blur();
+  expect(chat.refocusInput()).toBe(true);
+  expect(document.activeElement).toBe(input);
+  chat.closeInput();
+  expect(chat.refocusInput()).toBe(false);
+});

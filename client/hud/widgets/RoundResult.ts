@@ -148,15 +148,16 @@ export class FPSRoundResult implements FPSHudWidget {
     this.element.classList.toggle("fps-round-result--defused", result.reason === "defused");
     this.element.classList.toggle("fps-round-result--detonated", result.reason === "detonated");
 
-    // The rounds each side has, the winner's number lit
+    // The rounds each side has, the winner's number lit, Soba left and Udon
+    // right as the scoreboard puts them
     this.scoreEl.replaceChildren(
-      this.side("udon", names.udon ?? "Team Udon", scores.udon ?? 0, result.winner === "udon"),
+      this.side("soba", names.soba ?? "Team Soba", scores.soba ?? 0, result.winner === "soba", "left"),
       Object.assign(document.createElement("span"), { className: "fps-round-result-dash", textContent: ":" }),
-      this.side("soba", names.soba ?? "Team Soba", scores.soba ?? 0, result.winner === "soba"),
+      this.side("udon", names.udon ?? "Team Udon", scores.udon ?? 0, result.winner === "udon", "right"),
     );
   }
 
-  private side(team: string, name: string, score: number, won: boolean): HTMLElement {
+  private side(team: string, name: string, score: number, won: boolean, position: "left" | "right"): HTMLElement {
     const side = document.createElement("div");
     side.className = `fps-round-result-side fps-round-result-side--${team}${won ? " is-winner" : ""}`;
     const label = document.createElement("span");
@@ -165,7 +166,7 @@ export class FPSRoundResult implements FPSHudWidget {
     const number = document.createElement("span");
     number.className = "fps-round-result-rounds";
     number.textContent = String(score);
-    side.append(...(team === "udon" ? [label, number] : [number, label]));
+    side.append(...(position === "left" ? [label, number] : [number, label]));
     return side;
   }
 

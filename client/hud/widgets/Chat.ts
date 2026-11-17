@@ -254,6 +254,17 @@ export class FPSChat {
     return this.inputActive;
   }
 
+  /**
+   * Put the cursor back in an open talk line that lost it. A click while
+   * pointer-locked (firing, in Firefox) blurs the field and leaves talk mode
+   * open with no field taking Enter or Escape. Returns whether it did.
+   */
+  public refocusInput(): boolean {
+    if (!this.inputActive || document.activeElement === this.inputEl) return false;
+    this.inputEl.focus();
+    return true;
+  }
+
   public show(): void {
     this.container.style.display = "";
   }

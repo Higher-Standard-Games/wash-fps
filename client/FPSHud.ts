@@ -238,7 +238,18 @@ export class FPSHud {
       if ((e.code !== "KeyT" && e.code !== "KeyY" && e.code !== "Enter" && e.code !== "NumpadEnter") || e.repeat)
         return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
-      if (!this._chat || this._chat.isInputActive()) return;
+      if (!this._chat) return;
+      if (this._chat.isInputActive()) {
+        // Talk mode open but its field lost focus: the key takes the cursor back to it
+        const active = document.activeElement;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+        if (this._pauseMenu?.isOpen() || this._settings?.isOpen()) return;
+        if (this._chat.refocusInput()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       // Only in gameplay: in play, no menus/console/text fields open.
       // Exception: the single-match post-game deliberately leaves play
       // (open-up beat) — chat must stay reopenable for the banter.
