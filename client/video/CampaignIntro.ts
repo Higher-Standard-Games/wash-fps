@@ -29,7 +29,11 @@ export interface CampaignIntro {
   gameFade(t: number): number;
 }
 
-/** The intro for a demo of campaign mission `missionId`, or null for any other demo, or one with no card. */
+/**
+ * The intro for a demo of campaign mission `missionId`, or null for any other
+ * demo, one with no card, or one whose card will not load: the video then
+ * starts with the match rather than failing.
+ */
 export async function loadCampaignIntro(
   missionId: string | undefined,
   signal: AbortSignal,
@@ -39,7 +43,13 @@ export async function loadCampaignIntro(
   if (!missionId || !story || !card || card.panels.length === 0) return null;
   const image = new Image();
   image.src = card.image;
-  await image.decode();
+  try {
+    await image.decode();
+  } catch (error) {
+    signal.throwIfAborted();
+    console.warn(`[CampaignIntro] ${card.image} did not load; the video starts with the match`, error);
+    return null;
+  }
   signal.throwIfAborted();
   const number = campaignOperationNumber(missionId);
   const label = number ? `Operation ${String(number).padStart(2, "0")}` : "Campaign";
