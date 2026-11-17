@@ -180,8 +180,9 @@ export interface WeaponState {
   lastAltFireTick: number; // Last tick alt-fire was used
   wasAltFireDown: boolean; // Edge detection for alt-fire release
   /**
-   * Alt-fire held over from the weapon before a switch: it neither aims nor
-   * charges the new one until it is let go and pressed again.
+   * Alt-fire held over from the weapon before a switch: it charges no blade
+   * until it is let go and pressed again. (A gun's sights still come up for
+   * it: aim held through a switch stays aimed.)
    */
   altFireHeldOver: boolean;
   wasReloadButtonDown: boolean; // Edge detection for manual reload
@@ -414,17 +415,17 @@ export class WeaponSystem extends Subsystem {
     this.collisionWorld = world;
   }
 
+  /** Tell hit checks which players are bigger than normal. */
+  setHitScale(lookup: HitScaleLookup): void {
+    this.hitScale = lookup;
+  }
+
   /**
    * Wire hit registration to the rewind history. Without it, hitscan resolves
    * against the present, which makes a moving target harder to hit the worse
    * your connection is. With it, a shot is judged against the world the shooter
    * actually saw.
    */
-  /** Tell hit checks which players are bigger than normal. */
-  setHitScale(lookup: HitScaleLookup): void {
-    this.hitScale = lookup;
-  }
-
   setLagCompensation(lag: LagCompensation | null, ticksPerSnapshot = 1): void {
     this.lagCompensation = lag;
     // A client does not render the newest snapshot it holds — it renders behind

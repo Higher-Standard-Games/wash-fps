@@ -666,9 +666,6 @@ export class FPSMovementSubsystem extends Subsystem {
     });
   }
 
-  /**
-   * Set a per-entity speed bonus (called by WeaponSystem based on equipped weapon).
-   */
   /** Tell movement which players slime and lava do not burn, by entity. */
   setLiquidImmune(immune: (entityId: EntityId) => boolean): void {
     this.liquidImmune = immune;
@@ -679,6 +676,9 @@ export class FPSMovementSubsystem extends Subsystem {
     this.speedFactor = factor;
   }
 
+  /**
+   * Set a per-entity speed bonus (called by WeaponSystem based on equipped weapon).
+   */
   setSpeedBonus(entityId: number, bonus: number): void {
     this.weaponSpeedBonuses.set(entityId, bonus);
   }
