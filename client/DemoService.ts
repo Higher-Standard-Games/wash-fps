@@ -38,6 +38,8 @@ import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { isClientKey, toClientKey } from "../ClientEntityKey";
+import { BombRenderer } from "./BombRenderer";
+import { BombSiteMarkers } from "./BombSiteMarkers";
 import { CinematicDemoPlayer, type CinematicRecipe, groundClearanceIn, type ReelWorld } from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
 import { CampaignCutscene } from "./campaign/CampaignCutscene";
@@ -130,6 +132,11 @@ export class DemoService {
   private physicsScene: { scene: Scene; wasEnabled: boolean } | null = null;
   private demoDamageNumbers: DamageNumbers | null = null;
   private demoHitSpatter: HitSpatter | null = null;
+  /** The S&D bomb and its sites, from the recorded objective, as the game draws them. */
+  private demoBomb: BombRenderer | null = null;
+  private demoBombSites: BombSiteMarkers | null = null;
+  /** The playhead's seconds when the bomb last moved on, so it pauses and slows with playback. */
+  private demoBombSeconds: number | null = null;
   private droppedWeaponRenderer: DroppedWeaponRenderer | null = null;
   private readonly chargingPlayers = new Set<string>();
   private readonly chargingGlows = new Map<string, PointLight>();
@@ -707,6 +714,11 @@ export class DemoService {
     this.demoDamageNumbers = null;
     this.demoHitSpatter?.dispose();
     this.demoHitSpatter = null;
+    this.demoBomb?.dispose();
+    this.demoBomb = null;
+    this.demoBombSites?.dispose();
+    this.demoBombSites = null;
+    this.demoBombSeconds = null;
     this.corpses.clear();
     this.chasingCorpse = false;
     this.droppedWeaponRenderer?.dispose();
@@ -893,6 +905,8 @@ export class DemoService {
     this.physicsScene = { scene, wasEnabled: scene.physicsEnabled };
     this.demoDamageNumbers = DamageNumbers.create(scene);
     this.demoHitSpatter = HitSpatter.create(scene);
+    this.demoBomb = new BombRenderer(scene, () => this.remoteRenderer);
+    this.demoBombSites = new BombSiteMarkers(scene);
     // Demo playback uses snapshot transforms directly: no wall-clock Havok toss
     // continues while paused, and seek landing reconstructs the exact item set.
     this.droppedWeaponRenderer = new DroppedWeaponRenderer(scene, true);
@@ -1163,6 +1177,7 @@ export class DemoService {
     this._demoWvm?.setAmmoCount(currentClip(HUDState.getInstance()));
     applyCamera?.();
     this.remoteRenderer?.render();
+    this.updateDemoBomb();
     SlideDust.flush(this.physicsScene?.scene);
     this._renderDemoProjectiles();
     this._updateCrosshair();
@@ -1186,6 +1201,20 @@ export class DemoService {
       this.demoHud?.update(playback);
       if (this.demoHud) this.presentDemoEnds(this.demoHud, playback, performance.now());
     }
+  }
+
+  /**
+   * The bomb and its sites, after the players are placed (a carried bomb rides
+   * its carrier's back), stepped by the playhead: still while paused, slow in
+   * slow motion, and not run on after a seek.
+   */
+  private updateDemoBomb(): void {
+    const now = this.demoEffectSeconds;
+    const last = this.demoBombSeconds;
+    const dt = last === null ? 0 : Math.min(0.25, Math.max(0, now - last));
+    this.demoBombSeconds = now;
+    this.demoBomb?.update(dt);
+    this.demoBombSites?.update(dt);
   }
 
   /**
