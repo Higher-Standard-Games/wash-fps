@@ -192,4 +192,22 @@ describe("auto-shutdown when humans only watch", () => {
     inner.checkNoPlayers(NO_PLAYERS_SHUTDOWN_MS);
     expect(stop).toHaveBeenCalledOnce();
   });
+
+  it("closes a connection that has not joined within the handshake grace, giving its place back", async () => {
+    vi.useFakeTimers();
+    const { inner } = server();
+    inner.running = true;
+    const idle = { id: "conn_never", address: "203.0.113.5", close: vi.fn() };
+    const joining = { id: "conn_joins", address: "203.0.113.6", close: vi.fn() };
+    inner.handleConnect(idle);
+    inner.handleConnect(joining);
+    inner.clients.set(joining.id, { id: joining.id, connection: joining, isBot: false, isSpectator: true });
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(idle.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(idle.close).toHaveBeenCalledOnce();
+    expect(joining.close).not.toHaveBeenCalled();
+    inner.running = false;
+    vi.useRealTimers();
+  });
 });

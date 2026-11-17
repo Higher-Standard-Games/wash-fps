@@ -1367,6 +1367,14 @@ export class GameServer {
       console.log("[GameServer] Shutdown deferred — a client is connecting");
     }
     debugLog("setup", () => `[GameServer] WebSocket connected: ${conn.id}`);
+    // Each open connection takes one of maxClients; one that never joins (a
+    // stalled client, or someone holding sockets open) gives its place back
+    const joinDeadline = setTimeout(() => {
+      if (!this.running || this.clients.has(conn.id)) return;
+      debugLog("setup", () => `[GameServer] ${conn.id} did not join in time`);
+      conn.close("join timeout");
+    }, HANDSHAKE_GRACE_MS);
+    joinDeadline.unref?.();
   }
 
   /** A human playing, spectating, or holding a seat to resume into. */
