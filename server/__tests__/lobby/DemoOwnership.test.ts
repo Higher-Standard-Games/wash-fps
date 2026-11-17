@@ -87,14 +87,14 @@ it("publishes demo ownership only when ticketed accounts match a durable result"
     const lobby = new LobbyServer(0, new GameServerSpawner(), { players: accounts, results });
     const scanner = lobby as unknown as {
       DEMO_DIR: string;
-      _scanDemos(): void;
+      _scanDemos(): Promise<void>;
       _demoCache: DemoInfo[];
       _demoOwnership: Map<string, Set<number>>;
       handleDemosList(player: object, limit: number, scope: string): void;
       handleFeaturedGet(player: object, query: object): void;
     };
     scanner.DEMO_DIR = demoDir;
-    scanner._scanDemos();
+    await scanner._scanDemos();
     expect(scanner._demoCache.find((demo) => demo.filename === path.basename(savedPath))?.levelshot).toBe(
       "/data/levelshots/wdm2.jpg",
     );
@@ -187,12 +187,12 @@ it("lists a deleted account's demos under [deleted account], on deletion and on 
     const lobby = new LobbyServer(0, new GameServerSpawner(), { players: accounts });
     const scanner = lobby as unknown as {
       DEMO_DIR: string;
-      _scanDemos(): void;
+      _scanDemos(): Promise<void>;
       _demoCache: DemoInfo[];
       handleIdentityDelete(player: object, key: unknown, confirmed: unknown): void;
     };
     scanner.DEMO_DIR = demoDir;
-    scanner._scanDemos();
+    await scanner._scanDemos();
     expect(scanner._demoCache[0].players).toEqual([gone.account.name, stays.name, "Ramen"]);
 
     const ws = { readyState: 1, send: () => {}, close: () => {} };
@@ -202,7 +202,7 @@ it("lists a deleted account's demos under [deleted account], on deletion and on 
       true,
     );
     expect(scanner._demoCache[0].players).toEqual(["[deleted account]", stays.name, "Ramen"]);
-    scanner._scanDemos();
+    await scanner._scanDemos();
     expect(scanner._demoCache[0].players).toEqual(["[deleted account]", stays.name, "Ramen"]);
   } finally {
     accounts.close();

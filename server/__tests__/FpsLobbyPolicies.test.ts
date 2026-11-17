@@ -61,9 +61,9 @@ it("applies Washoi aliases only to demo levelshots and leaves recording identity
     }
     for (const resolver of [undefined, resolveFPSDemoMap]) {
       const lobby = new LobbyServer(0, new GameServerSpawner(), { players, settings, resolveDemoMap: resolver });
-      const scanner = lobby as unknown as { DEMO_DIR: string; _scanDemos(): void; _demoCache: DemoInfo[] };
+      const scanner = lobby as unknown as { DEMO_DIR: string; _scanDemos(): Promise<void>; _demoCache: DemoInfo[] };
       scanner.DEMO_DIR = dir;
-      scanner._scanDemos();
+      await scanner._scanDemos();
       expect(scanner._demoCache).toHaveLength(maps.length);
       for (const demo of scanner._demoCache) {
         expect(maps).toContain(demo.map);
