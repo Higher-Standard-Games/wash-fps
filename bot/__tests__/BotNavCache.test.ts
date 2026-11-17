@@ -178,3 +178,17 @@ describe("BotNavCacheStore", () => {
     expect(path.basename(store.getCachePath("../odd map"))).toBe("___odd_map.json");
   });
 });
+
+describe("a nav cache that cannot be written", () => {
+  it("leaves no part-written file behind", () => {
+    const store = createStore();
+    const graph = createGraph();
+    // A directory where the cache file goes: the rename over it fails, as over a file another runner holds open
+    const cachePath = store.getCachePath(graph.mapName);
+    fs.mkdirSync(cachePath, { recursive: true });
+    fs.writeFileSync(path.join(cachePath, "keep"), "x");
+    expect(store.save(graph, "fingerprint")).toBe(false);
+    const left = fs.readdirSync(path.dirname(cachePath)).filter((name) => name.endsWith(".tmp"));
+    expect(left).toEqual([]);
+  });
+});

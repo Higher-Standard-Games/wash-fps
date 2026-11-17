@@ -236,16 +236,19 @@ export class BotNavCacheStore {
       graph: graph.exportStaticData(),
     };
 
+    // Written beside and renamed over: a match runner reading the cache never
+    // sees half of one that another runner is writing.
+    const partial = `${cachePath}.${process.pid}.tmp`;
     try {
       fs.mkdirSync(this.rootDir, { recursive: true });
-      // Written beside and renamed over: a match runner reading the cache never
-      // sees half of one that another runner is writing.
-      const partial = `${cachePath}.${process.pid}.tmp`;
       fs.writeFileSync(partial, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
       fs.renameSync(partial, cachePath);
       this.lastDiagnostic = `saved: ${cachePath}`;
       return true;
     } catch (error) {
+      // The rename fails on Windows while another runner reads the cache:
+      // the part written goes, rather than piling up a file for each runner
+      fs.rmSync(partial, { force: true });
       this.lastDiagnostic = `save failed: ${(error as Error).message}`;
       return false;
     }
