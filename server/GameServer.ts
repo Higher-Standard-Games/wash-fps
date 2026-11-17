@@ -1661,7 +1661,7 @@ export class GameServer {
     const choice = parseLoadout(primary, secondary);
     if (!choice) {
       log.warnRateLimited(
-        "GameServer",
+        "GameServer:client",
         `Player ${client.playerId} sent an unknown loadout: ${String(primary).slice(0, 32)}/${String(secondary).slice(0, 32)}`,
       );
       return;
@@ -2130,7 +2130,7 @@ export class GameServer {
     }
     if (!client.isSpectator) {
       // Client-sent and repeatable: one line per 5 s however often it comes
-      log.warnRateLimited("GameServer", `Player ${client.playerId} tried to JoinGame but is already playing`);
+      log.warnRateLimited("GameServer:client", `Player ${client.playerId} tried to JoinGame but is already playing`);
       return;
     }
     // S&D and Amphi must not create a live entity until the reliable loadout
@@ -2279,7 +2279,7 @@ export class GameServer {
     if (!client) return;
     client.initialLoadUntilMs = undefined;
     if (client.isSpectator) {
-      log.warnRateLimited("GameServer", `Player ${client.playerId} tried to Spectate but is already spectating`);
+      log.warnRateLimited("GameServer:client", `Player ${client.playerId} tried to Spectate but is already spectating`);
       return;
     }
     // Never rate-limited: the client switches to the spectator camera as soon as
