@@ -21,7 +21,6 @@ import { createRagdollFrame } from "./ragdoll/RagdollFrame";
  *   5. Give every bone the launch velocity, or the sphere's after a throw
  *   6. Once the body comes to rest (or after RAGDOLL_LIFETIME at the latest)
  *      → freeze it where it lies, fade out, gib-explode and dispose
- *      (Warsow-style)
  */
 
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";

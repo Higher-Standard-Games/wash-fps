@@ -239,16 +239,6 @@ export class BotClient extends EventEmitter {
   get entityId(): string {
     return this._entityId;
   }
-  /** Slime and lava do not hurt this bot (a campaign boss): it no longer gets out of them. */
-  setLiquidImmune(immune: boolean): void {
-    if (this._brain instanceof StateMachineBrain) this._brain.setLiquidImmune(immune);
-  }
-
-  /** This bot's body is `scale` times a player's (a campaign boss): it aims from its own eye. */
-  setBodyScale(scale: number): void {
-    if (this._brain instanceof StateMachineBrain) this._brain.setBodyScale(scale);
-  }
-
   get brainState(): string {
     return this._brain.getState();
   }
