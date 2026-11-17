@@ -627,14 +627,35 @@ export class Game {
     devLog("[Game] Renderer context loss/restore handlers installed");
   }
 
+  /** A material revalidation running, and whether another restore asked for one meanwhile. */
+  private _revalidating = false;
+  private _revalidateAgain = false;
+
+  /**
+   * One revalidation at a time: a restore arriving during one asks for one
+   * more after it. Two at once each switch snapshot frames and world bundles
+   * off and restore what they found, and the later could restore "off".
+   */
   private async revalidateAfterContextRestore(scene: Scene): Promise<void> {
-    if (scene.isDisposed) return;
+    if (this._revalidating) {
+      this._revalidateAgain = true;
+      return;
+    }
+    this._revalidating = true;
     try {
-      const { revalidateMaterials } = await import("../../engine/weapon/EffectPreloader");
-      await revalidateMaterials(scene);
-      devLog("[Game] Material revalidation complete");
-    } catch (err) {
-      console.warn("[Game] Material revalidation failed:", err);
+      do {
+        this._revalidateAgain = false;
+        if (scene.isDisposed) return;
+        try {
+          const { revalidateMaterials } = await import("../../engine/weapon/EffectPreloader");
+          await revalidateMaterials(scene);
+          devLog("[Game] Material revalidation complete");
+        } catch (err) {
+          console.warn("[Game] Material revalidation failed:", err);
+        }
+      } while (this._revalidateAgain);
+    } finally {
+      this._revalidating = false;
     }
   }
 
