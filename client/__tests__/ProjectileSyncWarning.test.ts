@@ -25,7 +25,7 @@ vi.mock("../../FPSPlayer", () => ({
   FPSPlayer: { getInstance: () => ({}) },
 }));
 
-const { processProjectileEntities } = await import("../GameEvents");
+const { processProjectileEntities } = await import("../ProjectileSync");
 const { ServerProjectiles } = await import("../ServerProjectiles");
 
 function snapshotWithProjectile(tick: number): GameState {

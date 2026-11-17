@@ -21,8 +21,8 @@ import { log } from "../../../engine/core/Log";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
-import type { EntitySnapshot, SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
-import type { TransformComponent, Vec3 } from "../../../engine/network/components/TransformComponent";
+import type { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
+import type { TransformComponent } from "../../../engine/network/components/TransformComponent";
 import type { VelocityComponent } from "../../../engine/network/components/VelocityComponent";
 import type { IComponent } from "../../../engine/network/core/Component";
 import type { GameState } from "../../../engine/network/core/GameState";
@@ -56,7 +56,6 @@ import {
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import type { RailEffectSample } from "../../../engine/weapon/rail/RailProfiles";
 import { getWeaponViewManager, type LocalShot } from "../../../engine/weapon/WeaponViewManager";
-import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
 import type { CartoonHitEffect } from "../client/CartoonHitEffect";
@@ -108,6 +107,7 @@ import {
 } from "./hud/widgets/HintPanel";
 import { chooseKillTaunt } from "./KillTaunt";
 import { networkHostOf } from "./NetworkHostAccess";
+import { processProjectileEntities } from "./ProjectileSync";
 import type { RagdollSystem } from "./RagdollSystem";
 
 /** The decoded `weaponMeta` snapshot component of an `item_` entity. */
@@ -262,15 +262,10 @@ const railTruthSample: RailEffectSample = {
   color: railTruthColor,
 };
 
-// Sanity budget for concurrent remote charge glows. Was 2 under the raw-light
-// scarcity system; the glows now render through the gameplay cluster (WS1), so
-// this is a cosmetic cap, not a shader-safety limit.
+// Most remote charge glows lit at once. They render through the gameplay light
+// cluster, so this is a cosmetic cap, not a shader limit.
 const MAX_REMOTE_CHARGE_GLOW_LIGHTS = 6;
 
-/**
- * Process a server state update: dispatch events, sync weapon state,
- * buffer snapshots, update HUD, and feed V2Client.
- */
 /**
  * Events that are a moment rather than a state: a shot, a hit, a death, a
  * message. A demo seek lands without them; everything else still applies.
@@ -291,6 +286,10 @@ const ONE_SHOT_EVENTS: ReadonlySet<string> = new Set([
   "item_pickup",
 ]);
 
+/**
+ * Process a server state update: dispatch events, sync weapon state,
+ * buffer snapshots, update HUD, and feed V2Client.
+ */
 export function handleServerStateUpdate(ctx: GameEventContext, state: GameState): void {
   ctx._stateUpdateCount++;
   ctx.reloadAudio?.prune(state.entities.keys());
@@ -1400,120 +1399,7 @@ export function handleElectroRail(
 /** How far along the screen ray through the muzzle the local rail starts (units). */
 const RAIL_START_DISTANCE = 32;
 
-/**
- * Process server-driven projectile entities (Q3-style spawn/despawn/interpolation).
- */
-/** Mutable projectile-sync collections, shared by live play and demo playback. */
-export interface ProjectileSyncState {
-  /** Optional first-person presentation; demos/free cameras can omit it. */
-  muzzleForShot?: (position: Vector3, velocity: Vector3) => Vector3 | null;
-  /** Server entity ids we've spawned a visual for */
-  active: Set<string>;
-  /** proj_ entityId → defId (from projectile_spawn events) */
-  defIds: Map<string, string>;
-  /**
-   * proj_ entityId → the last snapshot tick it was in (or, before its first, the
-   * tick its type was first held). A projectile out of view keeps its type until
-   * it has been gone longer than any projectile lives.
-   */
-  seenTicks: Map<string, number>;
-  /** Interpolation buffer for smooth in-flight motion */
-  buffer: SnapshotBuffer;
-  /** Drop a despawned projectile's liquid tracking, if the game is running one. */
-  forgetLiquid?: (entityId: string) => void;
-}
-
-/**
- * How long a projectile type is kept after the projectile was last in a
- * snapshot: the longest projectile lifetime (10 s, `ProjectileSystem`) and a second.
- */
-const PROJECTILE_FORGET_TICKS = 11 * DEFAULT_PHYSICS_TICK_RATE;
-
-export function processProjectileEntities(state: GameState, sync: ProjectileSyncState, serverLocalTime?: number): void {
-  const projEntities = new Map<string, EntitySnapshot>();
-  const aliveThisSnapshot = new Set<string>();
-
-  for (const [entityId, entity] of state.entities) {
-    if (!entityId.startsWith("proj_")) continue;
-    aliveThisSnapshot.add(entityId);
-
-    const posComp = entity.getComponent<IComponent & Vec3>("position");
-    // The decoder's velocity carries its linear velocity as plain x/y/z too.
-    const velComp = entity.getComponent<IComponent & Vec3>("velocity");
-    if (!posComp) continue;
-
-    projEntities.set(entityId, {
-      x: posComp.x,
-      y: posComp.y,
-      z: posComp.z,
-      yaw: 0,
-      vx: velComp?.x ?? 0,
-      vy: velComp?.y ?? 0,
-      vz: velComp?.z ?? 0,
-      grounded: false,
-      crouching: false,
-      sliding: false,
-      wallJumping: false,
-    });
-
-    const seenBefore = sync.seenTicks.has(entityId);
-    sync.seenTicks.set(entityId, state.tick);
-
-    if (!sync.active.has(entityId)) {
-      const defId = sync.defIds.get(entityId);
-      if (defId) {
-        const projMgr = getProjectileManager();
-        if (!projMgr.isInitialized()) {
-          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-          if (gameScene) projMgr.init(gameScene);
-        }
-        const pos = new Vector3(posComp.x, posComp.y, posComp.z);
-        const vel = velComp ? new Vector3(velComp.x, velComp.y, velComp.z) : Vector3.Zero();
-        // Only a new shot starts at a gun. One coming back into view is mid-flight.
-        const muzzle = seenBefore ? null : sync.muzzleForShot?.(pos, vel);
-        projMgr.spawnFromServer(entityId, defId, pos, vel, muzzle);
-        sync.active.add(entityId);
-      } else {
-        // projectile_spawn is sent once, with the projectile's first snapshot,
-        // and names its type. Without it the projectile flies with no model or trail.
-        log.warnRateLimited(
-          "ProjectileSync",
-          `${entityId} is in snapshot ${state.tick} without its projectile_spawn event; it is not drawn`,
-        );
-      }
-    }
-  }
-
-  // Push to interpolation buffer
-  sync.buffer.push(state.tick, projEntities, serverLocalTime);
-
-  // Despawn visuals for projectiles that disappeared. Gone from the snapshot is
-  // either exploded or out of view (PVS), and the client cannot tell which, so
-  // the type is kept: projectile_spawn is sent once, and without it a projectile
-  // coming back into view would never be drawn again.
-  for (const entityId of sync.active) {
-    if (!aliveThisSnapshot.has(entityId)) {
-      getProjectileManager().despawnByEntityId(entityId);
-      sync.active.delete(entityId);
-      // Drop its liquid tracking too, or a recycled entity id inherits a
-      // "was in water" flag from a projectile that already exploded.
-      sync.forgetLiquid?.(entityId);
-    }
-  }
-
-  // Types are forgotten by age instead: projectile_impact carries no entity id.
-  for (const entityId of sync.defIds.keys()) {
-    const seen = sync.seenTicks.get(entityId);
-    if (seen === undefined) {
-      sync.seenTicks.set(entityId, state.tick);
-    } else if (state.tick - seen > PROJECTILE_FORGET_TICKS) {
-      sync.defIds.delete(entityId);
-      sync.seenTicks.delete(entityId);
-    }
-  }
-}
-
-// ── Award Event Handler ────────────────────────────────────────────
+// ── Chat and award events ──────────────────────────────────────────
 
 /** In-game chat event → HUD chat log (also fires during demo playback). */
 export function handleChatEvent(event: ChatSnapshotEvent): void {
