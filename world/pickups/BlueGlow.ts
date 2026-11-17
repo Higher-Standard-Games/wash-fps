@@ -78,6 +78,22 @@ async function buildMask(base: BaseTexture): Promise<RawTexture | null> {
   return mask;
 }
 
+/**
+ * Set a material's emissive intensity for this frame's binds only.
+ *
+ * The public setter also marks every submesh of the material as needing its
+ * shader defines checked again, which costs as much as a material change; done
+ * every frame for every glowing mesh it was a sixth of the frame's CPU time in
+ * a match. The intensity is a uniform Babylon uploads on each frame's first
+ * bind of an unfrozen material, so the stored value is all that has to change.
+ * Through the setter when the stored value is not where it is expected.
+ */
+export function setEmissiveIntensity(material: PBRMaterial, value: number): void {
+  const stored = material as unknown as { _emissiveIntensity?: number };
+  if (typeof stored._emissiveIntensity === "number") stored._emissiveIntensity = value;
+  else material.emissiveIntensity = value;
+}
+
 /** The glowing materials of each scene, which one observer makes breathe together. */
 const pulses = new WeakMap<Scene, Set<PBRMaterial>>();
 
@@ -90,7 +106,7 @@ function scenePulse(scene: Scene): Set<PBRMaterial> {
   const observer = scene.onBeforeRenderObservable.add(() => {
     const t = performance.now() / 1000;
     const strength = PULSE_LOW + (PULSE_HIGH - PULSE_LOW) * (0.5 + 0.5 * Math.sin(t * Math.PI * 2 * PULSE_RATE));
-    for (const core of breathing) core.emissiveIntensity = BLUE_GLOW_INTENSITY * strength;
+    for (const core of breathing) setEmissiveIntensity(core, BLUE_GLOW_INTENSITY * strength);
   });
   scene.onDisposeObservable.addOnce(() => scene.onBeforeRenderObservable.remove(observer));
   return cores;

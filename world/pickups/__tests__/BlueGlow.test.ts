@@ -23,3 +23,25 @@ describe("blue glow mask", () => {
     expect(Array.from(mask)).toEqual([20, 140, 255, 255, 0, 0, 0, 255]);
   });
 });
+
+describe("glow pulse", () => {
+  it("changes the uploaded intensity without marking the material's submeshes dirty", async () => {
+    const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine");
+    const { Scene } = await import("@babylonjs/core/scene");
+    const { PBRMaterial } = await import("@babylonjs/core/Materials/PBR/pbrMaterial");
+    const { setEmissiveIntensity } = await import("../BlueGlow");
+    const scene = new Scene(new NullEngine());
+    const material = new PBRMaterial("core", scene);
+    let dirtied = 0;
+    const owner = material as unknown as { _markAllSubMeshesAsTexturesDirty(): void };
+    const original = owner._markAllSubMeshesAsTexturesDirty.bind(material);
+    owner._markAllSubMeshesAsTexturesDirty = () => {
+      dirtied++;
+      original();
+    };
+    setEmissiveIntensity(material, 2.5);
+    expect(material.emissiveIntensity).toBe(2.5);
+    expect(dirtied).toBe(0);
+    scene.dispose();
+  });
+});
