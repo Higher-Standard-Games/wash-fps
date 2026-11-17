@@ -164,3 +164,34 @@ describe("ProjectileSystem — blade blast splash", () => {
     expect(sys.getPendingDamage().some((d) => (d.victimId as unknown as number) === 11)).toBe(false);
   });
 });
+
+describe("ProjectileSystem — splash on a bigger body", () => {
+  const health = () => ({ dead: false, health: 200, armor: 0, maxHealth: 200, maxArmor: 100 });
+  const stateWith = (players: unknown[]) => ({
+    entitiesByType: (t: EntityType) => (t === EntityType.Player ? players : []),
+    getEntityMut: () => undefined,
+    getEntityByOwner: () => undefined,
+    removeEntity: () => {},
+  });
+  type Splash = { applySplashDamage(...args: unknown[]): void };
+
+  it("reaches a boss's body, not only the point at its feet", () => {
+    const sys = new ProjectileSystem();
+    const boss = { id: 20, ownerId: 5, transform: { position: { x: 0, y: 0, z: 0 } }, health: health() };
+    sys.setHitScale((id) => (id === 20 ? 2.5 : 1));
+    // A rocket on the wall beside the boss's chest: far above the point a normal body is measured to
+    const blast = { x: 160, y: 180, z: 0 };
+    (sys as unknown as Splash).applySplashDamage(stateWith([boss]), blast, 99, 150, "rlauncher");
+    expect(sys.getPendingDamage().some((d) => (d.victimId as unknown as number) === 20)).toBe(true);
+  });
+
+  it("measures a normal body as it always has", () => {
+    const sys = new ProjectileSystem();
+    const player = { id: 21, ownerId: 6, transform: { position: { x: 0, y: 0, z: 0 } }, health: health() };
+    sys.setHitScale(() => 1);
+    (sys as unknown as Splash).applySplashDamage(stateWith([player]), { x: 151, y: 0, z: 0 }, 99, 150, "rlauncher");
+    expect(sys.getPendingDamage()).toHaveLength(0);
+    (sys as unknown as Splash).applySplashDamage(stateWith([player]), { x: 75, y: 0, z: 0 }, 99, 150, "rlauncher");
+    expect(sys.getPendingDamage()).toHaveLength(1);
+  });
+});

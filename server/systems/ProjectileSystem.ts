@@ -415,10 +415,15 @@ export class ProjectileSystem extends Subsystem {
       if (!target.transform || !target.health || target.health.dead) continue;
       if (target.id === skipEntityId) continue; // Skip this entity if it was directly hit
 
-      const dist = Math.sqrt(
-        (center.x - target.transform.position.x) ** 2 +
-          (center.y - target.transform.position.y) ** 2 +
-          (center.z - target.transform.position.z) ** 2,
+      // A bigger body (a campaign boss) is measured to its own middle, and its
+      // extra size reaches out to the blast: its shape as the direct hit sees
+      // it. At normal size this is the distance to its position, as always.
+      const scale = this.hitScale(target.id);
+      const body = scaledHitSphere(target.transform.position, 50, scale);
+      const dist = Math.max(
+        0,
+        Math.sqrt((center.x - body.center.x) ** 2 + (center.y - body.center.y) ** 2 + (center.z - body.center.z) ** 2) -
+          (body.radius - 50),
       );
 
       if (dist < radius) {
