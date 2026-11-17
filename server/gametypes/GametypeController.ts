@@ -102,6 +102,7 @@ export class GametypeController {
     this.gametype = gametype;
     gametype.setBotCheck((playerId) => this.botPlayerIds.has(playerId));
     gametype.setMatchClock(() => this.matchState.timeElapsed);
+    gametype.setTimeLimit(() => this.matchConfig.timeLimit);
     this.matchConfig = GametypeController.applyEnvOverrides(gametype.getMatchConfig());
     this.matchState = new MatchState(gametype.name, this.matchConfig, gametype.teamBased);
     this.spawnStrategy = createSpawnStrategy(gametype.getSpawnStrategy());

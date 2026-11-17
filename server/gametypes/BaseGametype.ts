@@ -187,6 +187,13 @@ export abstract class BaseGametype {
   /** Tells the gametype the seconds played of the live match, for rules that change as it goes. The controller sets it. */
   setMatchClock(_clock: () => number): void {}
 
+  /**
+   * Tells the gametype the configured time limit in seconds (a round's, in a
+   * round mode), which a campaign mission or a dev override may change from
+   * the gametype's own. The controller sets it.
+   */
+  setTimeLimit(_seconds: () => number): void {}
+
   /** Whether this player may pick up items (weapons, ammo, armor, health, powerups, dropped weapons). */
   mayPickUp(_entityId: number): boolean {
     return true;
