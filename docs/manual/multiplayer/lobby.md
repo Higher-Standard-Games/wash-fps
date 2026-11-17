@@ -8,7 +8,7 @@ The gold rail on the left is the whole menu:
 
 | Key | What it opens |
 |-----|---------------|
-| **Quick play** | Straight into a match: a private FFA room against four bots on a random map; press Ready to start |
+| **Quick play** | Straight into a match: a private FFA room against four bots on a random map; press Ready to start (pressed while the bots are still coming, it waits for the last of them) |
 | **Play** | The mode stage: Duel, Amphi, FFA, S&D. Pick one and find a room. FFA rooms hold 8 players (it starts from 4), S&D rooms 10 (it starts from 2), Duel and Amphi 2 |
 | **Campaign** | The story operations against bots, unlocked one by one; see [Campaign](../player/campaign.md) |
 | **Leaderboard** | Skill rankings per mode, counting every match: public, private and against bots |
