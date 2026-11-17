@@ -56,4 +56,15 @@ WASHOI_BOTS_DISABLED=1 bash "$scripts/activate-eu.sh"
 [[ $(tail -n 2 "$WASHOI_ROOT/systemctl.log" | head -n 1) == 'restart washoi-lobby' ]]
 rm "$WASHOI_ROOT/.deploy-state/backend.sha" "$WASHOI_ROOT/repos/shag/dist-server/bot-runner.mjs"
 if WASHOI_BOTS_DISABLED=1 bash "$scripts/activate-eu.sh" 2>/dev/null; then echo 'FAIL: activated a lobby without its match runner'; exit 1; fi
-echo 'PASS: occupied activation, US stage pruning, backend restarts (with and without washoi-bots), idempotence, maintenance cleanup and existing demo preservation'
+# US: a stage without the match runner is refused before anything is published
+sha2=abcdefabcdefabcdefabcdefabcdefabcdefabcd
+stage2="$WASHOI_ROOT/.pending/$sha2"
+mkdir -p "$stage2/client" "$stage2/server"
+echo client2 >"$stage2/client/index.html"
+echo server2 >"$stage2/server/lobby-server.mjs"
+echo "$sha2" >"$WASHOI_ROOT/.deploy-state/pending.sha"
+if WASHOI_BOTS_DISABLED=1 bash "$scripts/activate-us.sh" 2>/dev/null; then echo 'FAIL: US activated a stage without its match runner'; exit 1; fi
+[[ $(cat "$WASHOI_ROOT/repos/shag/dist-server/lobby-server.mjs") == server ]]
+[[ $(cat "$WASHOI_ROOT/releases/game/index.html") == client ]]
+[[ $(cat "$WASHOI_ROOT/.deploy-state/pending.sha") == "$sha2" ]]
+echo 'PASS: occupied activation, US stage pruning, backend restarts (with and without washoi-bots), a stage without its runner refused before publishing, idempotence, maintenance cleanup and existing demo preservation'

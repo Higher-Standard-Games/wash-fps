@@ -13,18 +13,19 @@ sha=$(cat "$STATE/pending.sha")
 stage="$ROOT/.pending/$sha"
 test -s "$stage/client/index.html"
 test -s "$stage/server/lobby-server.mjs"
+# With washoi-bots disabled the lobby seats bots itself and needs the match
+# runner: checked in the stage, before anything is published
+services=(washoi-lobby)
+if systemctl is-enabled --quiet washoi-bots 2>/dev/null; then
+  services+=(washoi-bots)
+else
+  test -s "$stage/server/bot-runner.mjs"
+fi
 # File publication runs without root privileges. Only systemd restarts need root.
 sudo -u washoi rsync -a --delete "$stage/server/" "$ROOT/repos/shag/dist-server/"
 sudo -u washoi rsync -a --delete --exclude data/ "$stage/client/" "$ROOT/releases/game/"
 if [[ -d $stage/client/data ]]; then
   sudo -u washoi rsync -a --exclude demos/ --exclude washoi_textures.pk3 "$stage/client/data/" "$ROOT/releases/game/data/"
-fi
-# With washoi-bots disabled the lobby seats bots itself and needs the match runner.
-services=(washoi-lobby)
-if systemctl is-enabled --quiet washoi-bots 2>/dev/null; then
-  services+=(washoi-bots)
-else
-  test -s "$ROOT/repos/shag/dist-server/bot-runner.mjs"
 fi
 systemctl restart "${services[@]}"
 sleep 3
