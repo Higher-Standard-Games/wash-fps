@@ -568,6 +568,19 @@ describe("agent directives", () => {
     );
   });
 
+  it("reads the round clock from the match's time limit, not its own default", () => {
+    const mode = loaded();
+    // A campaign mission's short rounds: the arming cannot wait for a fight
+    mode.setTimeLimit(() => 2);
+    const armer: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
+    const enemy: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    run(mode, [armer, enemy], 1);
+    run(mode, [{ ...armer, position: { x: 0, y: 0, z: 0 }, speed: 10 }, enemy], 1, 1);
+    expect(mode.bombState.phase).toBe("planted");
+    const forArmer = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_1" }), fakeState([]));
+    expect(forArmer[0]).toMatchObject({ id: "snd_arm", interrupt: "never" });
+  });
+
   it("ranks a defuse above everything else it ever issues", () => {
     const mode = new SearchAndDestroy();
     mode.onMapLoad(mapContext());
@@ -610,6 +623,24 @@ describe("agent directives", () => {
     const forFar = mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: "player_3" }), fakeState([]));
     expect(forNear[0].id).toBe("snd_defuse");
     expect(forFar[0]).toMatchObject({ id: "snd_clear_site", kind: "hold_area", interrupt: "enemy_visible" });
+  });
+
+  it("gives the defuse to the nearest bot, never to a person nearer the bomb", () => {
+    const mode = new SearchAndDestroy();
+    mode.onMapLoad(mapContext());
+    // Entity 2 is a person: orders are for bots, so the job must pass over them
+    mode.setPersonCheck((entityId) => entityId === 2);
+    mode.onTick(fakeState([]), tickContext({ players: [], live: false }));
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
+    const person: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 1500, y: 0, z: 0 } };
+    const bot: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    run(mode, [carrier, person, bot], 1);
+    const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
+    run(mode, [planting, person, bot], 4 * 125 + 20, 1);
+    expect(mode.bombState.phase).toBe("armed");
+    run(mode, [planting, person, bot], 10 * 125, 4 * 125 + 21);
+    const forBot = mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: "player_3" }), fakeState([]));
+    expect(forBot[0].id).toBe("snd_defuse");
   });
 
   it("uses ids stable across snapshots, so goal commitment survives", () => {

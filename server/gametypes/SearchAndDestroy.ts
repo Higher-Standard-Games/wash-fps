@@ -1046,12 +1046,16 @@ export class SearchAndDestroy extends BaseGametype {
     // The one attacker nearest the bomb does the job that needs exactly one
     // person: collecting it, or standing on it to arm. Everybody else is then
     // free to cover, rather than stacking on the same 64 units of floor.
-    this.bombWorkerId = this.nearestTo(attackers, this.bomb.position);
+    // Both jobs are orders, so they go to bots: a person given one would leave
+    // the bombwork undone by every bot on the side.
+    const attackingBots = attackers.filter((a) => !this.isPerson(a.entityId));
+    const defendingBots = defenders.filter((d) => !this.isPerson(d.entityId));
+    this.bombWorkerId = this.nearestTo(attackingBots, this.bomb.position);
     // One defender for a planted bomb, kept while alive: handed to whoever is
     // nearest each tick, the job swapped between two bots walking past each other.
     if (this.bomb.phase !== "planted" && !this.bomb.isArmed) this.defuserId = null;
-    else if (this.defuserId === null || !defenders.some((d) => d.entityId === this.defuserId))
-      this.defuserId = this.nearestTo(defenders, this.bomb.position);
+    else if (this.defuserId === null || !defendingBots.some((d) => d.entityId === this.defuserId))
+      this.defuserId = this.nearestTo(defendingBots, this.bomb.position);
 
     // Which site the attack commits to, once a round: nearest the bomb as the
     // round starts. Chosen again every tick, it followed the carrier and
@@ -1080,6 +1084,13 @@ export class SearchAndDestroy extends BaseGametype {
   /** Whether `team` plays this part of the coach. */
   private coaches(team: string, part: CoachPart): boolean {
     return !this.coachOff.get(team)?.has(part);
+  }
+
+  /** The round's time limit in seconds, as the match runs it. */
+  private roundSeconds: () => number = () => ROUND_TIME_SECONDS;
+
+  override setTimeLimit(seconds: () => number): void {
+    this.roundSeconds = seconds;
   }
 
   /** GameServer tells the mode which players are people's. */
@@ -1760,7 +1771,7 @@ export class SearchAndDestroy extends BaseGametype {
   /** Ticks left on the round clock, which stops mattering once the bomb is armed. */
   private roundTicksLeft(): number {
     const live = this.liveSinceTick ?? this.tick;
-    return ROUND_TIME_SECONDS * TICK_RATE - (this.tick - live);
+    return this.roundSeconds() * TICK_RATE - (this.tick - live);
   }
 
   /** Entity id of whoever in `candidates` is nearest `point`, or null. */
