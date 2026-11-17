@@ -142,6 +142,7 @@ export class FollowedViewWeapon {
     );
     this.readyView()?.updateFollowedBob({
       aiming: this.aiming,
+      entityId: this.entityId,
       deltaTime: pose.demoDeltaSeconds,
       grounded: pose.grounded,
       horizontalSpeed: pose.horizontalSpeed,
