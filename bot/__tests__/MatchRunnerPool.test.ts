@@ -51,6 +51,15 @@ describe("match runners", () => {
     expect(log).toEqual(["A1 reference medium"]);
   });
 
+  it("fails a bot at once when its runner cannot start", async () => {
+    const runners = new MatchRunnerPool({ file: "C:/no/such/node-binary.exe", args: [] });
+    const log: string[] = [];
+    await expect(
+      runners.launch("ws://a", { name: "A1", difficulty: "medium" }, undefined, recorder(log, "A1")),
+    ).rejects.toThrow("could not start");
+    expect(runners.status()).toEqual([]);
+  });
+
   it("starts a new runner for a bot that reaches one as it ends", async () => {
     const runners = pool();
     const log: string[] = [];

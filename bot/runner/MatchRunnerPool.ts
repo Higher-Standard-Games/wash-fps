@@ -179,16 +179,23 @@ export class MatchRunnerPool {
     this.runners.set(serverUrl, runner);
     console.log(`[BotServer] Match runner ${child.pid} started for ${serverUrl}`);
     child.on("message", (message: FromRunner) => this.receive(runner, message));
-    child.on("exit", (code, signal) => {
+    const ended = (why: string) => {
       runner.closing = true;
       if (this.runners.get(serverUrl) === runner) this.runners.delete(serverUrl);
-      console.log(`[BotServer] Match runner ${child.pid} for ${serverUrl} exited (${signal ?? code})`);
-      for (const { reject } of runner.pending.values()) reject(new Error("Match runner exited"));
+      for (const { reject } of runner.pending.values()) reject(new Error(`Match runner ${why}`));
       runner.pending.clear();
       for (const { events } of runner.bots.values()) events.onDisconnected();
       runner.bots.clear();
+    };
+    child.on("exit", (code, signal) => {
+      console.log(`[BotServer] Match runner ${child.pid} for ${serverUrl} exited (${signal ?? code})`);
+      ended("exited");
     });
-    child.on("error", (error) => console.error(`[BotServer] Match runner for ${serverUrl}: ${error.message}`));
+    child.on("error", (error) => {
+      console.error(`[BotServer] Match runner for ${serverUrl}: ${error.message}`);
+      // A runner that never started sends no exit: its bots would wait for ever
+      if (child.pid === undefined) ended("could not start");
+    });
     return runner;
   }
 
