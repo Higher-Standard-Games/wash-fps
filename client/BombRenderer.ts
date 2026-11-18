@@ -19,6 +19,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import { background } from "../../../engine/core/AsyncErrors";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
+import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
 import { renderToggle } from "../../../engine/rendering/RenderToggles";
 import { DEFAULT_BOMB_RULES } from "../../../shared/server/gametype/BombModel";
 import { BombFloorDecal } from "./bomb/BombFloorDecal";
@@ -100,13 +101,9 @@ export class BombRenderer {
   private elapsed = 0;
 
   /**
-   * Resolved per frame, never captured.
-   *
-   * The remote renderer is built on the first snapshot; this renderer is built
-   * on the first frame that has a scene, which is earlier. Taking the renderer
-   * as a value here captured `null` for the lifetime of the session, so the
-   * carried bomb — the state it spends most of a round in — could never find a
-   * spine to ride and hid itself instead.
+   * `getPlayers` is resolved per frame: the remote renderer is built on the
+   * first snapshot, after this renderer (built on the first frame with a
+   * scene), and the carried bomb needs it to find the carrier's spine.
    */
   constructor(
     scene: Scene,
@@ -160,6 +157,17 @@ export class BombRenderer {
     }
     model.root.parent = this.root;
     this.model = model;
+    // Compile its shaders now rather than on the first frame it shows: Firefox
+    // links a WebGL program synchronously, a visible hitch mid-round
+    for (const mesh of model.root.getChildMeshes(false)) {
+      if (this.disposed) return;
+      if (!mesh.material) continue;
+      try {
+        await prepareMaterial(mesh.material, mesh);
+      } catch {
+        // A mesh disposed meanwhile compiles nothing; drawing it compiles the rest
+      }
+    }
   }
 
   /**
