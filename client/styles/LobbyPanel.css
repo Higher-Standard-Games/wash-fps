@@ -306,9 +306,9 @@
 }
 
 .lobby__rail-nav
-  .raised-key--nav:not(.raised-key--quick, .raised-key--campaign):is(:hover, :focus-visible):not(:disabled):not(
-    [aria-current="page"]
-  ) {
+  .raised-key--nav:not(.raised-key--quick, .raised-key--campaign, .is-in-room):is(:hover, :focus-visible):not(
+    :disabled
+  ):not([aria-current="page"]) {
   --key-face: linear-gradient(180deg, hsl(51 100% 73%), hsl(46 100% 58%) 55%, hsl(42 100% 50%));
   --key-side: linear-gradient(180deg, hsl(36 92% 40%), hsl(28 88% 25%));
   --key-text: hsl(250 45% 8%);
@@ -327,6 +327,93 @@
 
 .lobby__rail-nav .raised-key--quick:is(:hover, :focus-visible):not(:disabled) {
   --key-face: linear-gradient(180deg, hsl(322 100% 84%), hsl(322 100% 70%) 55%, hsl(318 90% 57%));
+}
+
+/* In a room, on another page: Back to room stands out in cyan, one click from the seat it kept */
+.lobby__rail-nav .raised-key--nav.is-in-room:not([aria-current="page"]) {
+  --key-face: linear-gradient(180deg, hsl(182 100% 74%), hsl(182 95% 55%) 55%, hsl(188 90% 42%));
+  --key-side: linear-gradient(180deg, hsl(192 85% 28%), hsl(198 80% 17%));
+  --key-text: hsl(250 45% 8%);
+}
+
+.lobby__rail-nav .raised-key--nav.is-in-room:not([aria-current="page"]):is(:hover, :focus-visible):not(:disabled) {
+  --key-face: linear-gradient(180deg, hsl(182 100% 82%), hsl(182 100% 64%) 55%, hsl(188 90% 50%));
+}
+
+/* The Lobby key's radar: the room's search radar, small, in the key's cyan. It
+   always sweeps, whatever the system's motion setting: it is the sign the room
+   is still waiting for you */
+.lobby__key-radar {
+  position: relative;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  overflow: hidden;
+  border-radius: 50%;
+  background: radial-gradient(circle, hsl(250 44% 6%) 60%, hsl(250 44% 10%));
+  box-shadow: inset 0 0 0 1.5px hsl(182 95% 55% / 0.6);
+}
+
+.lobby__key-radar-ring {
+  position: absolute;
+  inset: 6px;
+  border: 1px solid hsl(182 95% 55% / 0.4);
+  border-radius: 50%;
+}
+
+.lobby__key-radar-ring--inner {
+  inset: 12px;
+}
+
+.lobby__key-radar-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 70%, hsl(182 95% 55% / 0.9) 100%);
+  animation: lobby-key-radar-spin 2.2s linear infinite;
+}
+
+.lobby__key-radar-blip {
+  position: absolute;
+  top: 7px;
+  left: 21px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  opacity: 0;
+  background: hsl(182 100% 80%);
+  box-shadow: 0 0 6px hsl(182 95% 55%);
+  animation: lobby-key-radar-blip 2.2s linear infinite;
+}
+
+.lobby__key-radar-core {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  background: hsl(182 95% 55%);
+}
+
+@keyframes lobby-key-radar-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes lobby-key-radar-blip {
+  0%,
+  30% {
+    opacity: 0;
+  }
+
+  34% {
+    opacity: 1;
+  }
+
+  80%,
+  100% {
+    opacity: 0;
+  }
 }
 
 /* Campaign: the campaign's dark plate, purple with scanlines and cream italic

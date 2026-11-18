@@ -128,6 +128,20 @@ const CHAT_LOG_LIMIT = 100;
 const DROP_IN_ANSWER_MS = 8000;
 
 const ACCENT_PROPERTIES = ["--accent", "--accent-hi", "--accent-lo", "--accent-side-hi", "--accent-side-lo"];
+/** The room's search radar, small, for the Lobby key: a sweep, two rings, a blip and a core. */
+function keyRadar(): HTMLElement {
+  const radar = document.createElement("span");
+  radar.className = "lobby__key-radar";
+  radar.setAttribute("aria-hidden", "true");
+  for (const part of ["ring", "ring lobby__key-radar-ring--inner", "sweep", "blip", "core"]) {
+    const [name, extra] = part.split(" ");
+    const piece = document.createElement("span");
+    piece.className = `lobby__key-radar-${name}${extra ? ` ${extra}` : ""}`;
+    radar.append(piece);
+  }
+  return radar;
+}
+
 /** Pips in the chat's online meter, and the cap they scale to when the lobby names none. */
 const ONLINE_PIPS = 4;
 const FALLBACK_LOBBY_CAPACITY = 64;
@@ -171,7 +185,9 @@ export class LobbyPanel extends GamePanel {
   private banNotice: string | null = null;
   private destroyed = false;
   private currentInviteToken: string | undefined;
-  private roomToRejoin: { lobbyId: string; inviteToken?: string; accountId: string } | null = null;
+  private roomToRejoin: { lobbyId: string; inviteToken?: string; accountId: string; quickPlay: boolean } | null = null;
+  /** A quick play room being rejoined after a reconnect: it is Quick play's again once back. */
+  private rejoiningQuickPlay: string | null = null;
 
   // Lobby server connection
   private lobbyClient: LobbyClient;
@@ -200,6 +216,8 @@ export class LobbyPanel extends GamePanel {
   private pendingPrivateCreate = false;
   /** The private room being created is quick play's: fill it with bots. */
   private pendingQuickPlay = false;
+  /** The room Quick play opened, while the player is in it: Quick play leads back to it. */
+  private quickPlayLobbyId: string | null = null;
   private quickPlayKey: HTMLButtonElement | null = null;
 
   private campaignView: CampaignView | null = null;
@@ -475,25 +493,44 @@ export class LobbyPanel extends GamePanel {
     if (this.playerNameEl) {
       this.playerNameEl.textContent = name ?? currentIdentity()?.name ?? PlayerProfile.load().name;
     }
+    // In a room the key leads back to it, a radar sweeping on it as the room waits;
+    // the room keeps its seat while other pages are open
     const playKey = this.tabButton("matchmaking");
-    if (playKey) setRaisedKeyText(playKey, "Play online");
+    if (playKey) {
+      const inRoom = this.currentLobbyId !== null;
+      setRaisedKeyText(playKey, inRoom ? "Lobby" : "Play online");
+      playKey.classList.toggle("is-in-room", inRoom);
+      const face = playKey.querySelector(".raised-key__face");
+      if (inRoom && face && !face.querySelector(".lobby__key-radar")) face.append(keyRadar());
+      if (!inRoom) face?.querySelector(".lobby__key-radar")?.remove();
+    }
     this.refreshQuickPlayKey();
     this.refreshCampaign();
   }
 
-  /** Quick play needs the lobby, its private rooms and FFA, and no room already open. */
+  /**
+   * Quick play needs the lobby, its private rooms and FFA, and no other room
+   * open. In the room it opened, it leads back there, bots and seat as they were.
+   */
   private refreshQuickPlayKey(): void {
     if (!this.quickPlayKey) return;
+    const inQuickPlay = this.currentLobbyId !== null && this.currentLobbyId === this.quickPlayLobbyId;
     this.quickPlayKey.disabled =
       !this.lobbyClient.connected ||
-      !this.privateLobbySupported ||
-      this.queuePending ||
-      this.currentLobbyId !== null ||
-      newUiApi.getMode(QUICK_PLAY_MODE, this.serverGametypes).status !== "ready";
+      (!inQuickPlay &&
+        (!this.privateLobbySupported ||
+          this.queuePending ||
+          this.currentLobbyId !== null ||
+          newUiApi.getMode(QUICK_PLAY_MODE, this.serverGametypes).status !== "ready"));
   }
 
   /** A private FFA room that adds its bots, votes a map and readies up by itself. */
   private startQuickPlay(): void {
+    // Already in the quick play room: back to it
+    if (this.currentLobbyId && this.currentLobbyId === this.quickPlayLobbyId) {
+      this.switchTab("matchmaking");
+      return;
+    }
     if (this.currentLobbyId) return;
     this.switchTab("matchmaking");
     if (this.showPrivateLobby(QUICK_PLAY_MODE)) this.pendingQuickPlay = true;
@@ -663,6 +700,7 @@ export class LobbyPanel extends GamePanel {
               lobbyId: this.currentLobbyId,
               inviteToken: this.currentInviteToken,
               accountId: identity.id,
+              quickPlay: this.currentLobbyId === this.quickPlayLobbyId,
             };
           }
           this.queuePending = false;
@@ -759,7 +797,10 @@ export class LobbyPanel extends GamePanel {
   private restoreRoom(accountId: string | undefined): void {
     const room = this.roomToRejoin;
     this.roomToRejoin = null;
-    if (room && room.accountId === accountId) this.lobbyClient.joinLobby(room.lobbyId, room.inviteToken);
+    if (room && room.accountId === accountId) {
+      this.rejoiningQuickPlay = room.quickPlay ? room.lobbyId : null;
+      this.lobbyClient.joinLobby(room.lobbyId, room.inviteToken);
+    }
   }
 
   private async performLobbyLogin(): Promise<void> {
@@ -954,6 +995,8 @@ export class LobbyPanel extends GamePanel {
   private handleLobbyCreated(lobby: MatchLobbyInfo): void {
     const quickPlay = this.pendingQuickPlay && lobby.visibility === "private" && !lobby.campaign;
     if (this.matchLobbyView) this.showPlayStage();
+    this.quickPlayLobbyId = quickPlay || lobby.id === this.rejoiningQuickPlay ? lobby.id : null;
+    this.rejoiningQuickPlay = null;
     let inviteToken: string | null = null;
     if (lobby.visibility === "private") {
       try {
@@ -1004,15 +1047,7 @@ export class LobbyPanel extends GamePanel {
         onMapSelection: (map) => LobbyAssetPreparation.shared.selectMap(map),
       },
     );
-    this.matchLobbyView.onLeave(() => {
-      if (this.currentLobbyId) {
-        this.lobbyClient.leaveLobby(this.currentLobbyId);
-        this.currentLobbyId = null;
-        this.roomToRejoin = null;
-        this.currentInviteToken = undefined;
-      }
-      this.showPlayStage();
-    });
+    this.matchLobbyView.onLeave(() => this.leaveRoom());
 
     // The stage keeps its light and backdrop word; the room takes its body,
     // and the whole stage takes the room's colour.
@@ -1570,13 +1605,7 @@ export class LobbyPanel extends GamePanel {
     this.queuePending = false;
     cutscene.fail(message, () => {
       if (this.campaignCutscene === cutscene) this.campaignCutscene = null;
-      if (this.currentLobbyId) {
-        this.lobbyClient.leaveLobby(this.currentLobbyId);
-        this.currentLobbyId = null;
-        this.roomToRejoin = null;
-        this.currentInviteToken = undefined;
-      }
-      this.showPlayStage();
+      this.leaveRoom();
       this.switchTab("campaign");
       this.refreshCampaign();
     });
@@ -1621,6 +1650,17 @@ export class LobbyPanel extends GamePanel {
     return true;
   }
 
+  /** Leave the open room, as its Leave key does, and go back to the Play stage. */
+  private leaveRoom(): void {
+    if (this.currentLobbyId) {
+      this.lobbyClient.leaveLobby(this.currentLobbyId);
+      this.currentLobbyId = null;
+      this.roomToRejoin = null;
+      this.currentInviteToken = undefined;
+    }
+    this.showPlayStage();
+  }
+
   private showPlayStage(): void {
     if (!this.matchLobbyView || !this.modesContainer || !this.playBodyEl) return;
 
@@ -1638,6 +1678,7 @@ export class LobbyPanel extends GamePanel {
     this.matchLobbyView = null;
     UINavigation.getInstance().focusDefault(this.root);
     this.currentLobbyId = null;
+    this.quickPlayLobbyId = null;
     LobbyAssetPreparation.shared.selectMap(null);
     this.currentInviteToken = undefined;
     this.refreshPlayerCard();

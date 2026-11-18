@@ -309,16 +309,13 @@
   font-size: 20px;
   cursor: pointer;
 }
+.lobby-guide__preference strong {
+  font-weight: 700;
+}
 .lobby-guide__preference input {
   width: 24px;
   height: 24px;
   accent-color: var(--ink);
-}
-.lobby-guide__preference small {
-  display: block;
-  opacity: 0.78;
-  margin-top: 4px;
-  font-size: 16px;
 }
 .lobby-guide__save-status {
   font-size: 16px;
@@ -444,10 +441,5 @@
   }
   .lobby-guide__preference {
     flex-basis: 100%;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .lobby-guide * {
-    transition: none;
   }
 }

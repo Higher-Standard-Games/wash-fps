@@ -750,12 +750,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .campaign__list {
-    scroll-behavior: auto;
-  }
-}
-
 /* ============================================================================
    The comic card before a mission
    ============================================================================ */
@@ -977,15 +971,6 @@
 
 .campaign-cut__back[hidden] {
   display: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .campaign-card--current {
-    animation: none;
-  }
-  .campaign-cut--waiting .campaign-cut__status {
-    animation: none;
-  }
 }
 
 /* The leaderboard in the operations' place: the campaign's night, edged in its pink */

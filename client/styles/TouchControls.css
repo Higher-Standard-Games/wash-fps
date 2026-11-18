@@ -290,13 +290,6 @@
   right: 2.2cqh;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .touch-controls__label,
-  .touch-controls__edge {
-    transition: none;
-  }
-}
-
 /* READY: shown while warmup's ready bar asks for it */
 .touch-btn--ready {
   display: none;

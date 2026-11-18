@@ -21,7 +21,7 @@ interface RecoveryPanel {
   };
   currentLobbyId: string | null;
   currentInviteToken: string | undefined;
-  roomToRejoin: { lobbyId: string; inviteToken?: string; accountId: string } | null;
+  roomToRejoin: { lobbyId: string; inviteToken?: string; accountId: string; quickPlay: boolean } | null;
   chatMessagesEl: HTMLElement;
   logInToLobby(): Promise<void>;
   initLobbyConnection(): Promise<void>;
@@ -81,7 +81,12 @@ describe("lobby recovery", () => {
     panel.currentLobbyId = "private-room";
     panel.currentInviteToken = "test-invite";
     listeners.get("_disconnected")!({} as never);
-    expect(panel.roomToRejoin).toEqual({ lobbyId: "private-room", inviteToken: "test-invite", accountId: "one" });
+    expect(panel.roomToRejoin).toEqual({
+      lobbyId: "private-room",
+      inviteToken: "test-invite",
+      accountId: "one",
+      quickPlay: false,
+    });
     expect(panel.root.textContent).toContain("Lobby offline");
     await vi.advanceTimersByTimeAsync(2000);
     panel.lobbyClient.connected = true;
@@ -157,7 +162,7 @@ describe("lobby recovery", () => {
   });
 
   it("restores a private room only for the original account", () => {
-    const room = { lobbyId: "room", inviteToken: "test-invite", accountId: "one" };
+    const room = { lobbyId: "room", inviteToken: "test-invite", accountId: "one", quickPlay: false };
     panel.roomToRejoin = room;
     panel.restoreRoom("two");
     expect(panel.lobbyClient.joinLobby).not.toHaveBeenCalled();

@@ -37,9 +37,6 @@ const CSS = `
   opacity: 1;
   transform: none;
 }
-@media (prefers-reduced-motion: reduce) {
-  .fps-tip { transition: none; }
-}
 `;
 
 let installed = false;

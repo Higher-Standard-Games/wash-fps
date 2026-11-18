@@ -138,7 +138,8 @@ export class LobbyWelcomeDialog {
           : "This choice couldn't be saved. Automatic display may still be disabled next time.";
     });
     const prefText = el("span");
-    prefText.append(el("span", "", "Don't show this again"), el("small", "", "Reopen this guide with ? in the lobby."));
+    // One line at the terms checkbox's size: the choice in bold, how to undo it after
+    prefText.append(el("strong", "", "Don't show this again."), " Reopen this guide with ? in the lobby.");
     this.preference.append(checkbox, prefText);
     this.saveStatus.setAttribute("role", "status");
     this.setup.addEventListener("click", options.onSetup);
