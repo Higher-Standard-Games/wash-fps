@@ -185,7 +185,10 @@ host:
    user from an engine checkout with its dependencies installed:
    `npm run fair-play -- reports --data-dir /srv/washoi/server-data`
    (`--help` lists the commands). The running lobby applies a ban within a
-   minute.
+   minute. For the admin panel, add a login with
+   `npm run fair-play -- add-admin <name> --data-dir /srv/washoi/server-data`
+   and have the proxy forward `/admin` to the lobby's port, as it forwards the
+   lobby WebSocket. The lobby logs `Admin panel:` at start when it is on.
 
 To roll back to beta.12, run `systemctl enable --now washoi-bots` first:
 the older lobby asks the bot server for bots, and with the bot server enabled

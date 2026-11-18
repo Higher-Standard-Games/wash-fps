@@ -10,6 +10,7 @@
  *   npm run lobby:server -- --max-players 64
  */
 
+import { adminFilePath } from "../../../lobby/AdminCredentials";
 import { CampaignStore } from "../../../lobby/CampaignStore";
 import { FairPlayStore } from "../../../lobby/FairPlayStore";
 import { GameServerSpawner } from "../../../lobby/GameServerSpawner";
@@ -163,6 +164,7 @@ const server = new LobbyServer(port, new GameServerSpawner(undefined, FPS_SERVER
   settings,
   campaign,
   fairPlay,
+  adminFile: adminFilePath(dataDir),
   maxPlayers,
 });
 console.log(`  Data directory: ${dataDir}`);
