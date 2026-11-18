@@ -25,7 +25,7 @@ We don't ask for your email, real name, phone number, or a password.
 
 Even without an email, some of what we keep can still identify you, so here it is plainly:
 
-- **What:** your username and a fingerprint of your key, your match stats, and recorded demos of your matches (including chat). Our servers use your IP address while you are connected, to limit abuse, and don't store it.
+- **What:** your username and a fingerprint of your key, your match stats, and recorded demos of your matches (including chat). Our servers use your IP address while you are connected, to limit abuse, and don't store it; an address we ban is kept only as a keyed hash until the ban ends.
 - **Why:** to run matches, show leaderboards and demos, keep play fair, promote the game, and train our bots (see section 5).
 - **Demos are a permanent public record.** We don't edit or remove them, and we may archive them.
 - **The details** (legal basis, how long each thing is kept, who sees it and your rights) are in our **Privacy Notice**, shown below these terms.
