@@ -141,9 +141,24 @@ deploy_site() {
   ensure_deps "$d"
   log "build site"
   ( cd "$d" && npm run typecheck && npm run build )
-  # The native game's downloads live beside the site (deploy_client).
-  publish "$d/dist/" "$RELEASES/site/" --exclude 'client/'
+  # The native game's downloads live beside the site (deploy_client), and so
+  # does the soundtrack download (publish_soundtrack): keep both.
+  publish "$d/dist/" "$RELEASES/site/" --exclude 'client/' --exclude 'soundtrack/'
+  publish_soundtrack
   mark site "$cur"; DEPLOYED=1
+}
+
+# washoi.net/soundtrack/ost.zip, linked from the site's /download page: the
+# game's own soundtrack package, served as is (a .pk3 is a zip). Copied from
+# the published game data, so it follows game releases. Written atomically and
+# only when it changed.
+publish_soundtrack() {
+  local src="$RELEASES/game/data/washoi_soundtrack.pk3" dir="$RELEASES/site/soundtrack"
+  [[ -f "$src" ]] || { log "soundtrack: $src missing; skipped"; return 0; }
+  mkdir -p "$dir"
+  cmp -s "$src" "$dir/ost.zip" && return 0
+  log "publish soundtrack -> $dir/ost.zip"
+  cp "$src" "$dir/.ost.zip.tmp" && chmod 0644 "$dir/.ost.zip.tmp" && mv -f "$dir/.ost.zip.tmp" "$dir/ost.zip"
 }
 
 # Engine main selects a matching engine/game pair, fetched independently.
@@ -186,10 +201,11 @@ deploy_game() {
   changed game "$cur" || { log "game unchanged"; return; }
   log "build game client (VITE_LOBBY_URL=$VITE_LOBBY_URL_EU)"
   washoi_game run build:server
-  VITE_LOBBY_URL="$VITE_LOBBY_URL_EU" washoi_game run build
+  NODE_OPTIONS=--max-old-space-size=3072 VITE_LOBBY_URL="$VITE_LOBBY_URL_EU" washoi_game run build
   publish "$d/dist/" "$RELEASES/game/" \
     --exclude 'sourcemaps/' --exclude 'stats.html' --exclude 'data/'
   rsync -a --exclude demos/ --exclude washoi_textures.pk3 "$d/dist/data/" "$RELEASES/game/data/"
+  publish_soundtrack
   mark game "$cur"; DEPLOYED=1
 }
 
@@ -207,10 +223,11 @@ deploy_studio() {
 }
 
 # The native game: GitHub's newest published (not draft) release.
-# The script is read from the pinned game checkout, which deploy_game has
-# just brought up to date, so a change to it ships when it is merged; an
-# installed /srv/washoi/client-release.sh is the fallback for a checkout
-# from before the script existed. Neither: the other surfaces deploy as
+# The script is read from the pinned game checkout as the previous deploy
+# left it (the client goes before deploy_game updates it), so a change to it
+# ships on the timer run after it is merged; an installed
+# /srv/washoi/client-release.sh is the fallback for a checkout from before
+# the script existed. Neither: the other surfaces deploy as
 # before. A failed fetch keeps the last release served and does not fail
 # the deploy (activation runs after a successful deploy only).
 deploy_client() {
@@ -233,12 +250,14 @@ deploy_client() {
 # ---- run -------------------------------------------------------------------
 log "deploy start: targets=${TARGETS[*]} force=$FORCE"
 
+# The client goes first: it needs no build, and a slow or failing build of
+# another surface must not hold back a new native release.
+want client      && deploy_client
 want site        && deploy_site
 want engine-docs && deploy_engine_docs
 want fps-docs    && deploy_fps_docs
 want game        && deploy_game
 want studio      && deploy_studio
-want client      && deploy_client
 
 if [[ $DEPLOYED -eq 1 ]]; then
   log "deploy done — published content updated (Caddy serves from disk; no reload needed)"
