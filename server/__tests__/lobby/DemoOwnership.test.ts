@@ -140,15 +140,22 @@ it("publishes demo ownership only when ticketed accounts match a durable result"
     expect(pages.at(-1)).toMatchObject({ selection: "recent_multiplayer_week" });
     results.ratings.ingest(humanSnapshot("skill-match", [first.id, second.id], Date.now(), "ffa"));
     scanner.handleFeaturedGet(reader(first.id), { type: "featured:get", requestId: "ranked", limit: 5 });
+    // Private rooms are featured as every other recording is, newest first
     expect(pages.at(-1)).toMatchObject({
       type: "featured:page",
       selection: "ranked_month_week",
-      entries: [{ demo: { filename: path.basename(savedPath) }, reason: "Features a 30-day top 10 player" }],
+      entries: [
+        { demo: { filename: path.basename(privatePath) }, reason: "Features a 30-day top 10 player" },
+        { demo: { filename: path.basename(savedPath) }, reason: "Features a 30-day top 10 player" },
+      ],
     });
-    expect(pages.at(-1)).not.toHaveProperty("entries.1");
+    expect(pages.at(-1)).not.toHaveProperty("entries.2");
     scanner._demoCache = [privateEntry];
     scanner.handleFeaturedGet(reader(first.id), { type: "featured:get", requestId: "private-only", limit: 5 });
-    expect(pages.at(-1)).toMatchObject({ type: "featured:page", entries: [], selection: "recent_multiplayer_week" });
+    expect(pages.at(-1)).toMatchObject({
+      type: "featured:page",
+      entries: [{ demo: { filename: path.basename(privatePath) } }],
+    });
   } finally {
     results.close();
     accounts.close();

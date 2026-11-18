@@ -20,8 +20,28 @@
   gap: 8px;
   margin-block: 12px;
 }
-.fps-pad-status {
+/* The first line of the Controller and Layout cards reads as one lead size,
+   so the keys under them line up */
+.fps-pad-status,
+.fps-pad-layout .fps-set-field__name {
+  margin: 0 0 4px;
+  font: 500 18px / 1.3 var(--body);
+  letter-spacing: 0;
+  text-transform: none;
+  color: hsla(45, 100%, 95%, 0.85);
   overflow-wrap: anywhere;
+}
+/* Sliders take the left half, the switches the right */
+.fps-pad-feel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 48px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .fps-pad-feel {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .fps-pad-feel .fps-set-seg {
   width: 100%;
@@ -51,7 +71,7 @@
   background: #242336;
   color: #fff;
   font: inherit;
-  font-size: 12px;
+  font-size: 15px;
   cursor: pointer;
 }
 .fps-pad-cap.is-focus,
@@ -62,7 +82,7 @@
 }
 .fps-pad-live {
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: 15px;
   min-height: 2em;
 }
 .fps-pad-action {
@@ -73,6 +93,7 @@
 .fps-pad-action .fps-set-act {
   flex: 1;
   min-width: 0;
+  font: 600 17px / 1.2 var(--body);
   text-align: left;
 }
 .fps-pad-clear {

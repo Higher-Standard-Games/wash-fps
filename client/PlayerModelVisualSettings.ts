@@ -129,7 +129,7 @@ export function registerPlayerModelVisualCvars(): void {
     persist: false,
     description: "Experimental reduced player outline geometry (requires benchmark:outline-proxy:build).",
   });
-  Cvar.register("cl_player_outline_size", 25, {
+  Cvar.register("cl_player_outline_size", 19, {
     type: "int",
     min: 0,
     max: 100,

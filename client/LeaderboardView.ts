@@ -26,10 +26,10 @@ type Entry = LeaderboardPage["entries"][number];
 type Period = "month" | "all";
 type Tab = Period | "list";
 
-const TABS: Array<{ id: Tab; name: string; sub: string }> = [
-  { id: "month", name: "Last 30 days", sub: "Rolling · never resets" },
-  { id: "all", name: "All time", sub: "Since launch" },
-  { id: "list", name: "Top 100", sub: "The full list" },
+const TABS: Array<{ id: Tab; name: string }> = [
+  { id: "month", name: "Last 30 days" },
+  { id: "all", name: "All time" },
+  { id: "list", name: "Top 100" },
 ];
 const PERIOD_NAME: Record<Period, string> = { month: "30 days", all: "All time" };
 const ACCENT_PROPERTIES = ["--accent", "--accent-hi", "--accent-lo", "--accent-side-hi", "--accent-side-lo"];
@@ -54,7 +54,6 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text?
 }
 
 const played = (entry: Entry) => entry.wins + entry.losses + entry.draws;
-const ratingText = (entry: Entry) => `${entry.rating}${entry.provisional ? " · Provisional" : ""}`;
 
 function avatarColor(name: string): string {
   let hash = 0;
@@ -75,15 +74,12 @@ export function nextStep(entries: readonly Entry[], you: Entry, limit: number): 
 
 export class LeaderboardView {
   readonly root: HTMLElement;
-  /** Your rank in each mode: the rail's middle while this page is open. */
-  readonly railMiddle: HTMLElement;
 
   private mode: RankedMode;
   private tab: Tab = "month";
   private listPeriod: Period = "month";
   private query = "";
   private readonly boards = new Map<string, Loaded>();
-  private readonly ranks = new Map<string, Loaded>();
   /** Bumped when the connection or the lobby's answer may have changed: late replies are dropped. */
   private generation = 0;
 
@@ -104,13 +100,8 @@ export class LeaderboardView {
   private readonly periodKeys = new Map<Period, HTMLButtonElement>();
   private readonly list: HTMLElement;
   private readonly listPin: HTMLElement;
-  private readonly railPeriod: HTMLElement;
-  private readonly railRanks: HTMLElement;
 
-  constructor(
-    private readonly modes: readonly RankedMode[],
-    light: HTMLElement,
-  ) {
+  constructor(modes: readonly RankedMode[], light: HTMLElement) {
     injectRaisedKeyStyles();
     UIStyles.injectCSS("lobby-leaderboard", leaderboardCss);
     this.mode = modes[0];
@@ -143,7 +134,7 @@ export class LeaderboardView {
     for (const tab of TABS) {
       const key = createRaisedKey({
         variants: ["tab"],
-        content: [el("span", "lobby__board-name", tab.name), el("span", "lobby__board-sub", tab.sub)],
+        content: [el("span", "lobby__board-name", tab.name)],
       });
       key.addEventListener("click", () => {
         this.tab = tab.id;
@@ -154,7 +145,8 @@ export class LeaderboardView {
       this.tabKeys.set(tab.id, key);
     }
 
-    this.rule = el("div", "lobby__rule");
+    // How many are ranked on this board, on the campaign's gold plate
+    this.rule = el("p", "lb-count campaign-plate");
     this.status = el("p", "lb-status");
     this.status.setAttribute("role", "status");
 
@@ -209,14 +201,6 @@ export class LeaderboardView {
 
     this.root.append(light, this.ghost, head, tabs, this.rule, this.status, this.podiumPane, this.listPane);
 
-    this.railMiddle = el("section", "lobby__rail-mid lb-rail");
-    this.railMiddle.setAttribute("aria-label", "Your ranks");
-    const railHead = el("div", "lobby__rail-label");
-    this.railPeriod = el("span");
-    railHead.append(el("span", "", "Your ranks"), this.railPeriod);
-    this.railRanks = el("div", "lb-rail__ranks");
-    this.railMiddle.append(railHead, this.railRanks);
-
     this.setMode(this.mode, false);
   }
 
@@ -224,7 +208,6 @@ export class LeaderboardView {
   async refresh(): Promise<void> {
     this.generation++;
     this.boards.clear();
-    this.ranks.clear();
     this.render();
     await this.load();
   }
@@ -233,7 +216,6 @@ export class LeaderboardView {
   clear(): void {
     this.generation++;
     this.boards.clear();
-    this.ranks.clear();
     this.render();
   }
 
@@ -272,13 +254,6 @@ export class LeaderboardView {
     const boardKey = this.boardKey(this.mode.id, period);
     if (!this.boards.has(boardKey))
       wanted.push(this.fetch(this.boards, boardKey, this.mode.id, period, 100, generation));
-    for (const mode of this.modes) {
-      const key = this.boardKey(mode.id, period);
-      // A full board already carries your row
-      if (!this.ranks.has(key) && !this.boards.has(key)) {
-        wanted.push(this.fetch(this.ranks, key, mode.id, period, 1, generation));
-      }
-    }
     this.render();
     await Promise.all(wanted);
   }
@@ -304,7 +279,7 @@ export class LeaderboardView {
   /** Your row in a mode and period, from a full board or a rank-only reply. */
   private yours(modeId: string, period: Period): { loaded: Loaded | undefined; you: Entry | null } {
     const key = this.boardKey(modeId, period);
-    const loaded = this.boards.get(key) ?? this.ranks.get(key);
+    const loaded = this.boards.get(key);
     if (loaded?.state !== "ready") return { loaded, you: null };
     const id = currentIdentity()?.id;
     const entry = loaded.page.localPlayerEntry;
@@ -331,7 +306,6 @@ export class LeaderboardView {
     this.podiumPane.hidden = this.tab === "list";
     this.listPane.hidden = this.tab !== "list";
     this.renderBoard();
-    this.renderRail();
   }
 
   private renderBoard(): void {
@@ -339,16 +313,14 @@ export class LeaderboardView {
     const loaded = this.boards.get(this.boardKey(this.mode.id, this.period));
     // Rows from a lobby that can no longer rank are not shown as if it could
     const page = availability.status === "ready" && loaded?.state === "ready" ? loaded.page : null;
-    this.rule.textContent = `Career skill rating · provisional ratings include uncertainty${page?.total ? ` · ${page.total} ranked` : ""}`;
+    const ranked = page?.total ?? 0;
+    this.rule.replaceChildren(el("strong", "", String(ranked)), ranked === 1 ? " ranked player" : " ranked players");
+    this.rule.hidden = !page?.total;
 
     let status = "";
     if (availability.status !== "ready") status = availability.reason;
     else if (loaded?.state === "failed") status = loaded.reason;
     else if (!page) status = "Loading rankings…";
-    else if (page.total === 0)
-      status = `No ranked ${this.mode.title} matches ${this.period === "month" ? "in the last 30 days" : "yet"}.`;
-    if (page?.localProcessing?.excluded)
-      status += `${status ? " " : ""}${page.localProcessing.excluded} of your matches did not qualify for skill rating.`;
     this.status.textContent = status;
     this.status.hidden = status === "";
 
@@ -383,43 +355,6 @@ export class LeaderboardView {
     this.jumpKey.hidden = !you || !entries.some((entry) => entry.playerId === you.playerId);
     this.listPane.querySelector<HTMLElement>(".lb-board")!.hidden = !ranked;
     this.search.disabled = !ranked;
-  }
-
-  private renderRail(): void {
-    this.railPeriod.textContent = PERIOD_NAME[this.period];
-    const availability = newUiApi.getFeatureStatus("leaderboard");
-    if (availability.status !== "ready") {
-      this.railRanks.replaceChildren(el("p", "lobby__rail-empty", availability.reason));
-      return;
-    }
-    this.railRanks.replaceChildren(
-      ...this.modes.map((mode) => {
-        const { loaded, you } = this.yours(mode.id, this.period);
-        const standing = !loaded || loaded.state === "loading" ? "…" : you ? `#${you.rank}` : "—";
-        const record =
-          loaded?.state === "failed"
-            ? "Unavailable"
-            : you
-              ? ratingText(you)
-              : loaded?.state === "ready"
-                ? "Unranked"
-                : "";
-        const dot = el("span", "lobby__room-mark");
-        const name = el("span", "raised-key__label", mode.title);
-        const detail = el("span", "lobby__room-map lb-rail__record", record);
-        const rank = el("span", "raised-key__hint lobby__room-count", standing);
-        const key = createRaisedKey({ variants: ["sm", "cream", "room"], content: [dot, name, detail, rank] });
-        key.classList.add("lb-rail__rank");
-        key.style.setProperty("--mode-mark", mode.mark);
-        key.setAttribute("aria-pressed", String(mode.id === this.mode.id));
-        key.setAttribute(
-          "aria-label",
-          `${mode.title}: ${you ? `rank ${you.rank}, rating ${ratingText(you)}` : record || "loading"}`,
-        );
-        key.addEventListener("click", () => this.setMode(mode));
-        return key;
-      }),
-    );
   }
 
   private headRow(): HTMLElement {
@@ -472,25 +407,41 @@ export class LeaderboardView {
     const plinth = el("article", `lb-plinth lb-plinth--${Math.min(entry.rank, 3)}${isYou ? " is-you" : ""}`);
     const face = el("div", "lb-plinth__face");
     face.append(el("span", "lb-plinth__rank", String(entry.rank)));
-    if (entry.rank === 1) face.append(el("span", "lb-plinth__tag", this.period === "month" ? "Leading" : "Champion"));
     if (isYou) face.append(el("span", "lb-plinth__tag", "You"));
     if (entry.bot) face.append(el("span", "lb-plinth__tag lb-plinth__tag--bot", "Bot"));
-    const wins = el("span", "lb-plinth__wins", String(entry.rating));
-    wins.append(el("small", "", "rating"));
-    const count = played(entry);
-    face.append(
-      el("span", "lb-plinth__name", entry.name),
-      wins,
-      el(
-        "span",
-        "lb-plinth__meta",
-        `${entry.provisional ? "Provisional · " : ""}${entry.ratedMatches} rated · ${count} ${count === 1 ? "match" : "matches"} · ${entry.wins} W / ${entry.losses} L / ${entry.draws} D`,
-      ),
-    );
+    // The rating, large; a provisional one is drawn fainter rather than labelled
+    const rating = el("span", `lb-plinth__wins${entry.provisional ? " is-provisional" : ""}`, String(entry.rating));
+    rating.title = entry.provisional ? `Rating ${entry.rating}, provisional` : `Rating ${entry.rating}`;
+    face.append(el("span", "lb-plinth__name", entry.name), rating, this.plinthRecord(entry));
     const side = el("div", "lb-plinth__side");
     side.setAttribute("aria-hidden", "true");
     plinth.append(side, face);
     return plinth;
+  }
+
+  /** Matches played and the wins and losses, over a bar of wins against draws and losses. */
+  private plinthRecord(entry: Entry): HTMLElement {
+    const count = played(entry);
+    const record = el("span", "lb-plinth__meta");
+    const bar = el("span", "lb-plinth__bar");
+    bar.setAttribute("aria-hidden", "true");
+    for (const [n, kind] of [
+      [entry.wins, "wins"],
+      [entry.draws, "draws"],
+      [entry.losses, "losses"],
+    ] as const) {
+      if (n <= 0) continue;
+      const part = el("span", `lb-plinth__bar-${kind}`);
+      part.style.flexGrow = String(n);
+      bar.append(part);
+    }
+    const line = el("span", "lb-plinth__counts");
+    line.append(
+      el("strong", "", `${count} ${count === 1 ? "match" : "matches"}`),
+      ` · ${entry.wins} W · ${entry.losses} L${entry.draws ? ` · ${entry.draws} D` : ""}`,
+    );
+    record.append(line, bar);
+    return record;
   }
 
   private jumpToMe(): void {

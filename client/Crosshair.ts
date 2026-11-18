@@ -227,7 +227,7 @@ export class Crosshair {
 
     // Cvar values
     const size = (Cvar.get("cg_crosshairSize") as number) ?? 32;
-    const colorHex = (Cvar.get("cg_crosshairColor") as string) ?? "00FF00";
+    const colorHex = (Cvar.get("cg_crosshairColor") as string) ?? "F4F7FF";
     const alpha = (Cvar.get("cg_crosshairAlpha") as number) ?? 0.9;
     const spreadEnabled = ((Cvar.get("cg_crosshairSpread") as number) ?? 1) > 0;
     const hitColorHex = (Cvar.get("cg_crosshairDmgColor") as string) ?? "FF0000";
@@ -416,7 +416,7 @@ Cvar.register("cg_crosshairSize", 32, {
   description: "Crosshair size in pixels (half-extent)",
 });
 
-Cvar.register("cg_crosshairColor", "00FF00", {
+Cvar.register("cg_crosshairColor", "F4F7FF", {
   type: "string",
   description: "Crosshair color (hex RGB without #)",
 });

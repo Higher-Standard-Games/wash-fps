@@ -71,10 +71,11 @@ describe("profile gameplay stats", () => {
   it("shows records and gameplay totals without a rating, then the committed rating change in history", async () => {
     const { view, client } = setup();
     await view.refreshRecord();
-    expect(view.root.querySelector(".profile-record__row")?.textContent).toContain("Not rated2 W1 L");
-    expect(view.root.querySelector(".profile-stats__detail")?.textContent).toContain("4 frags");
-    expect(view.root.querySelector(".profile-record__status")?.textContent).toContain("3 not rated");
-    view.root.querySelector<HTMLButtonElement>(".profile-record__history-key")!.click();
+    expect(view.root.querySelector(".profile-card__rating")?.textContent).toBe("Not rated");
+    expect(view.root.querySelector(".profile-card__counts")?.textContent).toBe("2 wins · 1 loss");
+    expect(view.root.querySelector(".profile-card__stats")?.textContent).toContain("4 frags");
+    expect(view.root.querySelector(".profile-record__status")?.getAttribute("aria-label")).not.toContain("not rated");
+    view.root.querySelector<HTMLButtonElement>(".profile-card__history-key")!.click();
     await vi.waitFor(() =>
       expect(view.root.querySelector(".profile-history")?.textContent).toContain("1000 → 1020 (+20)"),
     );
@@ -90,7 +91,7 @@ describe("profile gameplay stats", () => {
     await view.refreshRecord();
     expect(client.requestPlayerStats).toHaveBeenCalledWith({ gametype: "duel", scope: "overall", period: "all" });
     expect(view.root.querySelector("[aria-label='Ranking scope']")).toBeNull();
-    expect(view.root.querySelector(".profile-record__status")?.textContent).toMatch(/^3 matches/);
+    expect(view.root.querySelector(".profile-record__status")?.getAttribute("aria-label")).toMatch(/^3 matches/);
   });
   it("refuses malformed stats rather than rendering invented totals", async () => {
     const { client } = setup();

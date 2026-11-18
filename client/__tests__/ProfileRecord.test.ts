@@ -46,10 +46,16 @@ function mount(client: unknown, supported = true): ProfileView {
   });
 }
 
-const status = (view: ProfileView): string => view.root.querySelector(".profile-record__status")?.textContent ?? "";
+/** The totals' sentence when they are plates, else the status text. */
+const status = (view: ProfileView): string => {
+  const node = view.root.querySelector(".profile-record__status");
+  return node?.getAttribute("aria-label") ?? node?.textContent ?? "";
+};
 const rows = (view: ProfileView): string[][] =>
-  [...view.root.querySelectorAll(".profile-record__row")].map((row) =>
-    [...row.children].map((cell) => cell.textContent ?? ""),
+  [...view.root.querySelectorAll(".profile-card")].map((card) =>
+    [".profile-card__mode", ".profile-card__rank", ".profile-card__rating", ".profile-card__counts"].map(
+      (part) => card.querySelector(part)?.textContent ?? "",
+    ),
   );
 
 const row = (over: Partial<Row> = {}): Row => ({
@@ -103,10 +109,10 @@ describe("the record card", () => {
     );
     await view.refreshRecord();
     expect(rows(view)).toEqual([
-      ["AMPHITHEATRE", "#2", "1200 (P)", "5 W", "1 L", "1 D"],
-      ["DUEL", "#9", "1200 (P)", "2 W", "7 L", "0 D"],
+      ["AMPHITHEATRE", "#2", "1200 rating · provisional", "5 wins · 1 loss · 1 draw"],
+      ["DUEL", "#9", "1200 rating · provisional", "2 wins · 7 losses"],
     ]);
-    expect(status(view)).toBe("16 matches · best #2 in AMPHITHEATRE");
+    expect(status(view)).toBe("16 matches · #2 in AMPHITHEATRE");
   });
 
   it("counts one match as a match", async () => {
@@ -116,7 +122,7 @@ describe("the record card", () => {
       ),
     );
     await view.refreshRecord();
-    expect(status(view)).toBe("1 match · best #1 in DUEL");
+    expect(status(view)).toBe("1 match · #1 in DUEL");
   });
 
   it("still shows the modes that answered when one does not", async () => {
@@ -127,8 +133,8 @@ describe("the record card", () => {
       }),
     );
     await view.refreshRecord();
-    expect(rows(view)).toEqual([["AMPHITHEATRE", "#1", "1200 (P)", "3 W", "0 L", "0 D"]]);
-    expect(status(view)).toBe("3 matches · best #1 in AMPHITHEATRE");
+    expect(rows(view)).toEqual([["AMPHITHEATRE", "#1", "1200 rating · provisional", "3 wins · 0 losses"]]);
+    expect(status(view)).toBe("3 matches · #1 in AMPHITHEATRE");
   });
 
   it("reports the refusal when nothing could be read", async () => {
@@ -142,8 +148,8 @@ describe("the record card", () => {
     const view = mount(client);
     await view.refreshRecord();
     expect(view.root.querySelector("[data-scope]")).toBeNull();
-    // Two modes, one excluded match each.
-    expect(status(view)).toMatch(/2 matches did not qualify for skill rating/);
+    // Matches that were not rated are not counted for the player: no rank yet is all it says
+    expect(status(view)).toMatch(/No ranked match yet/);
     expect(client.requestLeaderboard.mock.calls.at(-1)?.[0]).not.toHaveProperty("scope");
     view.destroy();
   });

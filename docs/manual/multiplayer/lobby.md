@@ -72,13 +72,18 @@ Pressing the big action under a mode puts you in a **room** for that mode, eithe
 
 In a room you can:
 
-- **Vote for a map.** Three maps are drawn from the mode's pool (only maps actually installed are offered, so there can be fewer than three); the most votes wins.
-- **Pick a side** in a team mode, add **bots** (a public room becomes private when you do), and **chat** with the room.
+- **Vote for a map.** Six maps are drawn from the mode's pool when it has six or more, otherwise three (only maps actually installed are offered, so there can be fewer); the most votes wins.
+- **Pick a side** in a team mode, add **AI players**, and **chat** with the room.
+- **Nobody joining?** A public room looks for people for 90 seconds. For its
+  last 30 seconds it counts down under the waiting clock, then invites an AI
+  opponent. In FFA and S&D another follows every 5 seconds while seats are
+  open, so a person can still take one. Private rooms wait for the people you
+  invite.
 - **Ready up.** When everyone is ready the lobby starts a dedicated game server for that match alone and hands your client a ticket for your seat.
 
 See [Connecting → In the Ready Room](./connecting.md#in-the-ready-room) for the voting and bot rules.
 
-**Add bot** chooses at least Hard difficulty; stronger rating matches can select
+**Add AI player** chooses at least Hard difficulty; stronger rating matches can select
 Insane. The arrow beside it opens a menu to pick Easy, Medium, Hard or Insane. In Duel, bots listen for movement, chase with slides and strafe jumps,
 and prefer controlling reachable upper floors when healthy and armed. They
 patrol around timed items and recover from stalled routes or ledge hangs.
@@ -100,8 +105,8 @@ whether it was rated and explains exclusions.
 
 | Pool | What counts toward its rating |
 |------|------------------------------|
-| **Public** | Eligible matches between verified human accounts; public rooms do not allow bots |
-| **Private** | Eligible human matches and matches against verified standard bot presets |
+| **Public** | Eligible matches between verified human accounts in public rooms |
+| **Private** | Eligible matches in private rooms, and every match against verified standard bot presets, public room or private |
 
 Ratings are separate for each mode. The system uses **TrueSkill**, which
 tracks both estimated skill and uncertainty, rather than a win-count ladder or
@@ -129,8 +134,8 @@ Pick a mode and see its ranking:
 - **30 days / All time**: choose the activity window; 30 days rolls continuously.
 - **Top 100**: the whole list, with a search.
 
-The top players are shown as a podium, and your own rank in every mode appears in
-the rail. Players are ordered by conservative skill rating; wins, losses, draws,
+The top players are shown as a podium, and your own row is pinned under the
+board. Players are ordered by conservative skill rating; wins, losses, draws,
 games and win rate provide context. The 30-day view filters recent activity; it
 does not reset your skill rating every month. An unrated account has no ladder
 position yet.

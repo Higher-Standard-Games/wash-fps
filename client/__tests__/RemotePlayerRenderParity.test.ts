@@ -413,6 +413,8 @@ async function record(): Promise<string[]> {
   setCvar("cl_player_run_upper", 1);
   // ...and predates white, untinted, randomly drawn enemies
   setCvar("cl_player_tint", 1);
+  // The outline size the recording was taken with
+  setCvar("cl_player_outline_size", 25);
   setCvar("cl_team_enemy_model", "police");
   for (const slot of ["enemy", "ffa"]) {
     setCvar(`cl_team_${slot}_color`, "0.1 1.15 1.85");

@@ -64,7 +64,7 @@ export class ControllerPage {
   constructor(private readonly host: ControlsHost) {
     registerControllerSettings();
     UIStyles.injectCSS("fps-controller-settings", css);
-    const connection = card("Controller", "Press a controller button on the loading screen to choose controller mode.");
+    const connection = card("Controller");
     this.status.setAttribute("role", "status");
     connection.append(this.status, this.devices);
     const modes = el("div", "fps-pad-mode");
@@ -85,7 +85,7 @@ export class ControllerPage {
       modes.append(key);
     }
     connection.append(modes);
-    const presets = card("Layout", "Menu navigation always uses A to select, B to go back, and Menu to pause.");
+    const presets = card("Layout", "fps-pad-layout");
     seg(host, presets, {
       name: "Preset",
       choices: [
@@ -96,10 +96,7 @@ export class ControllerPage {
       set: applyControllerPreset,
     });
     presets.append(this.preset);
-    const diagramCard = card(
-      "Your controller",
-      "Select a button to choose its action. Focus an action to highlight its button.",
-    );
+    const diagramCard = card("Your controller");
     const diagram = el("div", "fps-pad-diagram");
     diagram.innerHTML =
       '<svg viewBox="0 0 480 310" aria-hidden="true"><path d="M110 48 Q240 10 370 48 Q415 62 446 235 Q452 293 407 281 L330 213 Q240 240 150 213 L73 281 Q28 293 34 235 Q65 62 110 48 Z"/><circle cx="125" cy="124" r="36"/><circle cx="288" cy="211" r="33"/><path d="M165 188 h43 v43 h-43 Z"/></svg>';
@@ -114,15 +111,8 @@ export class ControllerPage {
       diagram.append(cap);
       this.caps.set(index, cap);
     });
-    diagramCard.append(
-      diagram,
-      this.live,
-      el("small", "", "Sticks: move / look · LS: walk with Always run · Menu: pause / resume"),
-    );
-    const actions = card(
-      "What each button does",
-      "Select an action, release the controls, then press its new button. Menu cancels.",
-    );
+    diagramCard.append(diagram, this.live);
+    const actions = card("What each button does");
     const groups = el("div", "fps-set-acts");
     for (const group of ACTION_GROUPS) {
       const column = el("div", "fps-set-act-group");
@@ -148,8 +138,12 @@ export class ControllerPage {
       groups.append(column);
     }
     actions.append(groups);
-    const tuning = card("Stick feel", "Movement uses full speed outside the dead zone. Hold Sprint / walk to walk.");
-    const feel = el("div", "fps-set-stack fps-pad-feel");
+    const tuning = card("Stick feel");
+    // Sliders on the left half, the on/off switches on the right
+    const feel = el("div", "fps-pad-feel");
+    const sliders = el("div", "fps-set-stack");
+    const switches = el("div", "fps-set-stack");
+    feel.append(sliders, switches);
     tuning.append(feel);
     for (const [name, cvar, min, max, step] of [
       ["Horizontal turn speed (°/s)", "in_pad_yaw", 30, 720, 10],
@@ -159,7 +153,7 @@ export class ControllerPage {
       ["Look dead zone", "in_pad_look_deadzone", 0.05, 0.4, 0.01],
       ["While aiming", "in_pad_ads", 0.1, 1, 0.05],
     ] as const)
-      slider(host, feel, {
+      slider(host, sliders, {
         name,
         min,
         max,
@@ -173,7 +167,7 @@ export class ControllerPage {
       ["Swap move and look sticks", "in_pad_swap"],
       ["Aim assist", "in_pad_assist"],
     ] as const) {
-      seg(host, feel, {
+      seg(host, switches, {
         name,
         choices: [
           { value: 0, label: "Off" },
@@ -318,7 +312,9 @@ export class ControllerPage {
     }
   }
   private render(): void {
-    this.preset.textContent = controllerPreset() ? "Edit any action below to make a custom layout." : "Custom layout";
+    // Said only when the layout is no preset: a preset's name is already picked above
+    this.preset.textContent = controllerPreset() ? "" : "Custom layout";
+    this.preset.hidden = Boolean(controllerPreset());
     for (const action of CONTROLLER_ACTIONS) {
       const row = this.rows.get(action.id);
       if (row) {

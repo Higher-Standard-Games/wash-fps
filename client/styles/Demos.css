@@ -139,20 +139,27 @@
   z-index: 1;
 }
 
+/* Tabs flush in the shot's top corners, as the frame-rate counter sits in the
+   screen's: the tags at the left, where the slab's slanted edge starts, the
+   length at the right. Every cell in the row is one height, the map name a
+   clear one, so all their text sits on one line. */
+.dm-shot {
+  --tab-h: 40px;
+}
+
 .dm-shot__flags {
-  top: 14px;
-  right: 100px;
-  left: 22px;
+  top: 0;
+  right: 0;
+  left: var(--cut, 0);
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  gap: 0;
   min-width: 0;
+  height: var(--tab-h);
 }
 
 .dm-shot__map {
   min-width: 0;
-  margin-left: 4px;
   overflow: hidden;
   color: var(--cream);
   font: 900 clamp(14px, 1.05vw, 19px) / 1.1 var(--w-font-display, "Orbitron", monospace);
@@ -166,14 +173,31 @@
 }
 
 .dm-flag {
+  display: flex;
   flex: 0 0 auto;
-  padding: 6px 12px;
+  align-items: center;
+  padding: 0 24px 0 16px;
   background: var(--ink);
   color: var(--gold-text);
-  font: 900 11px / 1 var(--w-font-display, "Orbitron", monospace);
+  font: 900 15px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+
+/* A tab after another tucks under its slant */
+.dm-flag + .dm-flag {
+  margin-left: -6px;
+  padding-left: 22px;
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+
+.dm-shot__flags .dm-shot__map {
+  display: block;
+  flex: 1 1 auto;
+  align-self: center;
+  padding: 0 12px;
+  letter-spacing: 0.02em;
 }
 
 .dm-flag--mode {
@@ -182,15 +206,17 @@
 }
 
 .dm-shot__len {
-  top: 14px;
-  right: 18px;
-  padding: 6px 10px 6px 12px;
-  background: hsla(250, 50%, 4%, 0.72);
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: var(--tab-h);
+  padding: 0 18px 0 24px;
+  background: var(--ink);
   color: var(--cream);
-  font: 800 13px / 1 var(--w-font-display, "Orbitron", monospace);
+  font: 800 15px / 1 var(--w-font-display, "Orbitron", monospace);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
-  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%);
 }
 
 /* ── Who played, on a card ── */
@@ -282,18 +308,11 @@
   max-width: 100%;
   overflow: hidden;
   color: var(--cream);
-  font: 700 17px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  font: 900 19px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.08em;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
-}
-
-.dm-card__size {
-  color: hsla(45, 100%, 95%, 0.55);
-  font: 700 13px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .dm-error {
@@ -336,27 +355,27 @@
   text-align: center;
 }
 
-.dm-hero .dm-shot__flags {
-  top: 20px;
-  right: 110px;
-  left: 30px;
+.dm-hero .dm-shot {
+  --tab-h: 54px;
 }
 
 .dm-hero .dm-shot__map {
-  margin-left: 8px;
-  font-size: clamp(18px, 1.6vw, 28px);
+  padding: 0 16px;
+  font-size: clamp(18px, 1.5vw, 28px);
 }
 
 .dm-hero .dm-flag {
-  padding: 7px 14px;
-  font-size: 12px;
+  padding: 0 30px 0 20px;
+  font-size: 18px;
+}
+
+.dm-hero .dm-flag + .dm-flag {
+  padding-left: 28px;
 }
 
 .dm-hero .dm-shot__len {
-  top: 20px;
-  right: 28px;
-  padding: 8px 12px 8px 14px;
-  font-size: 15px;
+  padding: 0 22px 0 30px;
+  font-size: 20px;
 }
 
 /* Who played, big: two names across a VS, or everyone in a crowd */
@@ -467,55 +486,69 @@
   letter-spacing: 0.1em;
 }
 
-.dm-hero__reel {
+/* Highlights and its arrow, joined as Add AI player and its arrow are */
+.dm-hl {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-end;
 }
 
-.dm-hero__reel .raised-key__face {
+/* One slant for both halves, so the arrow's cut runs along the key's */
+.dm-hl__main,
+.dm-hl__arrow {
+  --key-cut: 5px;
+}
+
+.dm-hl__main .raised-key__face {
+  padding-right: 18px;
+}
+
+.raised-key.dm-hl__main {
+  margin-right: 0;
+}
+
+.raised-key.dm-hl__arrow {
+  margin-left: calc(2px - var(--key-cut));
+}
+
+.dm-hl__arrow .raised-key__face {
   justify-content: center;
-  min-height: 52px;
-  padding: 0 22px 0 24px;
+  padding: 0 12px;
 }
 
-.dm-hero__reel .raised-key__label {
-  font-size: 14px;
-  letter-spacing: 0.1em;
+.dm-hl__arrow .raised-key__label {
+  font-size: 28px;
+  line-height: 0.8;
 }
 
-.dm-lens {
+/* The arrow's menu: opens upwards, over the page */
+.dm-hl-menu {
+  position: fixed;
+  z-index: 100000;
   display: flex;
-  gap: 6px;
-  padding-bottom: 6px;
+  flex-direction: column;
+  min-width: 190px;
+  padding: 8px;
+  background: hsl(45 100% 95%);
+  box-shadow: 6px 6px 0 hsla(250, 45%, 4%, 0.6);
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
 }
 
-.dm-lens button {
-  min-width: 50px;
-  height: 38px;
-  padding: 0 10px;
+.dm-hl-menu__item {
+  padding: 12px 18px;
   border: 0;
-  border-radius: 2px;
-  background: linear-gradient(180deg, hsl(250 24% 27%), hsl(250 30% 18%));
-  color: hsla(45, 100%, 95%, 0.72);
-  font: 800 12px / 1 var(--w-font-display, "Orbitron", monospace);
-  letter-spacing: 0.06em;
+  color: hsl(250 45% 7%);
+  font: 900 15px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.08em;
+  text-align: left;
   text-transform: uppercase;
+  background: transparent;
   cursor: pointer;
-  box-shadow: 0 4px 0 hsl(250 40% 6%);
 }
 
-.dm-lens button:is(:hover, :focus-visible):not(:disabled) {
+.dm-hl-menu__item:is(:hover, :focus-visible) {
   outline: none;
-  background: linear-gradient(180deg, hsl(278 92% 72%), hsl(268 72% 52%));
-  color: var(--cream);
-}
-
-.dm-lens button.is-on {
-  background: linear-gradient(180deg, hsl(51 100% 73%), hsl(44 100% 55%));
-  color: var(--ink);
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 hsl(30 88% 28%);
+  color: hsl(45 100% 95%);
+  background: hsl(250 45% 7%);
 }
 
 .dm-hero__where {
@@ -552,14 +585,25 @@
   min-height: 0;
 }
 
-.dm-picks__label {
-  display: flex;
-  justify-content: space-between;
-  margin: 2px 0 14px;
-  color: hsla(45, 100%, 95%, 0.5);
-  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.18em;
+/* The picks count on the campaign's gold plate (doubled class: the campaign sheet loads later) */
+.dm-picks__label.campaign-plate {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: baseline;
+  gap: 10px;
+  margin: 2px 0 18px 4px;
+  padding: 10px 30px 12px 22px;
+  font: 800 15px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.dm-picks__label strong {
+  font: 900 24px / 1 var(--w-font-display, "Orbitron", monospace);
+}
+
+.dm-picks__label[hidden] {
+  display: none;
 }
 
 .dm-picks__list {
@@ -666,21 +710,6 @@
   gap: 14px 18px;
 }
 
-.dm-count {
-  margin-left: auto;
-  color: hsla(45, 100%, 95%, 0.55);
-  font: 700 13px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.dm-count b {
-  margin-right: 4px;
-  color: var(--cream);
-  font: 900 15px / 1 var(--w-font-display, "Orbitron", monospace);
-  letter-spacing: 0.04em;
-}
-
 .dm-grid {
   display: grid;
   flex: 1;
@@ -743,41 +772,6 @@
   padding: 0 2px 6px;
   color: hsla(45, 100%, 95%, 0.45);
   font: 900 16px / 1 var(--w-font-display, "Orbitron", monospace);
-}
-
-/* ── Rail: maps ── */
-
-.dm-rail__maps {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  margin-right: calc(var(--rail-skew, 44px) + 12px);
-  padding: 8px 14px 16px 22px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-color: hsla(250, 45%, 8%, 0.45) transparent;
-  scrollbar-width: thin;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 8px, #000 calc(100% - 14px), transparent);
-  mask-image: linear-gradient(to bottom, transparent, #000 8px, #000 calc(100% - 14px), transparent);
-}
-
-.dm-rail__maps > .raised-key {
-  flex-shrink: 0;
-}
-
-.dm-rail__map .raised-key__label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dm-rail__map[aria-pressed="true"] .lobby__room-mark {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
 }
 
 /* ── Highlight reel menu ── */
@@ -855,17 +849,6 @@
   color: var(--gold-text);
 }
 
-.dm-reel__sub {
-  margin-bottom: 16px;
-  overflow: hidden;
-  color: hsla(250, 45%, 8%, 0.66);
-  font: 700 15px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
 .dm-reel__opts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -895,16 +878,6 @@
   font: 900 30px / 1 var(--w-font-display, "Orbitron", monospace);
 }
 
-.dm-reel__export {
-  width: 100%;
-  margin-top: 14px;
-  min-height: 60px;
-}
-
-.dm-reel__export b {
-  font-size: 22px;
-}
-
 .dm-reel__opt small {
   font: 700 14px / 1 var(--w-font-body, "Rajdhani", sans-serif);
   letter-spacing: 0.14em;
@@ -927,18 +900,9 @@
 }
 
 /* A length the demo is too short for keeps its place */
-.dm-lens button:disabled,
 .dm-reel__opt:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-.dm-reel__hint {
-  margin-top: 16px;
-  color: hsla(250, 45%, 8%, 0.62);
-  font: 700 14px / 1.25 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 /* ═══ SIZES ═══ */
@@ -966,12 +930,6 @@
   .dm-mu__row {
     min-height: 28px;
   }
-
-  .dm-rail__maps .raised-key__face {
-    min-height: 40px;
-    padding-top: 8px;
-    padding-bottom: 8px;
-  }
 }
 
 @media (max-width: 1100px) {
@@ -988,4 +946,19 @@
     scrollbar-color: hsla(276, 90%, 64%, 0.45) transparent;
     scrollbar-width: thin;
   }
+}
+
+/* The featured slab's Highlights key, larger; after the other key rules it overrides */
+.dm-hero .dm-hl .raised-key__face {
+  justify-content: center;
+  min-height: 52px;
+}
+
+.dm-hero .dm-hl__main .raised-key__face {
+  padding: 0 22px 0 24px;
+}
+
+.dm-hero .dm-hl__main .raised-key__label {
+  font-size: 14px;
+  letter-spacing: 0.1em;
 }

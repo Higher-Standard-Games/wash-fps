@@ -134,19 +134,20 @@ The lobby's Demos page lists the same recordings without the console, except
 recordings shorter than two minutes: no board or search shows them, though the
 files are kept. Three boards sit at the top:
 
-- **Featured** — a server-selected handful from the last seven days: one large,
-  the rest in a list beside it. The server prefers recordings with a player from
-  that mode's 30-day top ten and says so; when there are none it shows the latest
-  multiplayer matches instead, and the line under the boards says which.
+- **Featured** — a server-selected handful: one large, the rest in a list
+  beside it. The server prefers this week's recordings with a player from that
+  mode's 30-day top ten, then this week's multiplayer matches, and when the week
+  has none, the newest multiplayer matches of any age. Private rooms count;
+  campaign missions do not.
 - **Latest** — the newest 64 recordings, six to a page.
 - **Yours** — the ones you played in, matched on the verified account from your
   seat and the stored match result, never on a display name. A lobby server that
   cannot prove ownership leaves it switched off.
 
-The mode keys at the top right and the maps in the rail filter every board; the
-rail counts the recordings on each map. Latest and Yours also take a search by
-player or map. **▶ Watch** plays a recording from the start; **⚡ Highlights**
-cuts one down to 1, 2 or 3 minutes of its best moments.
+The mode keys at the top right filter every board. Latest and Yours also take a
+search by player or map. **▶ Watch** plays a recording from the start; **⚡ Highlights**
+asks for a length and cuts the recording down to 1, 2 or 3 minutes of its best
+moments. The arrow beside it opens **Export video**.
 
 A card shows what a recording's header holds: the map, the mode, who played, how
 long it ran, when, and its size. The header has no final score, so a card shows
@@ -155,7 +156,7 @@ none.
 ## Video export
 
 Export a saved recording's highlights to a video file. Leave any live match,
-then choose **Export video** inside a demo card's **Highlights** menu. For an
+then choose **Export video** from the arrow beside a recording's **Highlights**. For an
 already loaded recording, run `videoexport`. Export is available in release
 builds with `developer 0`; rendering, encoding and temporary video storage run
 locally in your browser.

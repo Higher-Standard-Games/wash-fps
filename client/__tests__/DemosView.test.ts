@@ -38,7 +38,7 @@ function setup(options: { featured?: FeaturedDemo[]; ownership?: boolean } = {})
   const client = { connected: true, requestDemoList, requestFeaturedDemos } as unknown as LobbyClient;
   bindFeaturedDemos(client, true);
   const view = new DemosView({ client, modes: MODES, light: document.createElement("div"), leave: vi.fn() });
-  document.body.append(view.root, view.railMiddle);
+  document.body.append(view.root);
   view.connected(options.ownership ?? true, true);
   return { view, requestDemoList, requestFeaturedDemos };
 }
@@ -65,7 +65,6 @@ describe("DemosView", () => {
     const first = requestDemoList.mock.results.at(-1)!.value;
     await vi.advanceTimersByTimeAsync(DEMO_ARCHIVE_TIMEOUT_MS);
     expect(view.root.textContent).toContain("The archive did not answer");
-    expect(view.railMiddle.textContent).not.toContain("Loading the archive");
     const retry = [...view.root.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
       button.textContent?.includes("Try again"),
     )!;
@@ -95,27 +94,14 @@ describe("DemosView", () => {
     await vi.advanceTimersByTimeAsync(DEMO_ARCHIVE_TIMEOUT_MS);
     expect(vi.getTimerCount()).toBe(0);
   });
-  it("shows the lobby's picks as text, under a rule that says how they were chosen", async () => {
+  it("shows the lobby's picks as text", async () => {
     const picked = demo(1, "wdm2", "duel", ["One", "<img src=x onerror=alert(1)>"]);
     const { view } = setup({ featured: [{ demo: picked, rank: 1, reason: "Recent multiplayer recording" }] });
     await flush();
 
-    expect(view.root.querySelector(".lobby__rule")?.textContent).toBe(
-      "No top-10 matches this week · the latest multiplayer matches instead",
-    );
     expect(view.root.querySelector(".dm-hero")?.textContent).toContain("<img src=x onerror=alert(1)>");
     expect(view.root.querySelector("img")).toBeNull();
     expect(view.root.querySelectorAll(".raised-key--pick")).toHaveLength(1);
-    view.destroy();
-  });
-
-  it("names the top ten when the lobby picked for it", async () => {
-    const picked = demo(1, "wdm2", "duel", ["One", "Two"]);
-    const { view } = setup({ featured: [{ demo: picked, rank: 1, reason: "Features a 30-day top 10 player" }] });
-    await flush();
-    expect(view.root.querySelector(".lobby__rule")?.textContent).toBe(
-      "This week's matches with players from the 30-day top 10",
-    );
     view.destroy();
   });
 
@@ -141,15 +127,12 @@ describe("DemosView", () => {
     );
     view.receiveList("latest", list, requestDemoList.mock.results.at(-1)!.value);
     expect(view.root.querySelectorAll(".dm-card")).toHaveLength(6);
-    expect(view.root.querySelector(".dm-count")?.textContent).toBe("8demos · page 1 of 2");
 
-    // Deathmatch recordings are free for all; the rail counts each map's recordings
+    // Deathmatch recordings are free for all
     [...view.root.querySelectorAll<HTMLButtonElement>(".lobby__mode-key")]
       .find((key) => key.textContent === "FFA")
       ?.click();
     expect(view.root.querySelectorAll(".dm-card")).toHaveLength(3);
-    const maps = [...view.railMiddle.querySelectorAll(".dm-rail__map")].map((key) => key.getAttribute("aria-label"));
-    expect(maps).toEqual(["All maps: 3 recordings", "WDM7: 3 recordings"]);
     view.destroy();
   });
 
@@ -184,7 +167,7 @@ describe("highlight reels", () => {
     expect(reelLengths(60 * MIN)).toEqual([1, 2, 3]);
   });
 
-  it("offers release video export while keeping short demos disabled", () => {
+  it("offers reel lengths in the dialog and video export on the arrow, short demos disabled", () => {
     vi.stubEnv("DEV", false);
     const { view, requestDemoList } = setup();
     tabKey(view, "Latest").click();
@@ -201,8 +184,18 @@ describe("highlight reels", () => {
 
     longKey.click();
     const options = [...document.querySelectorAll<HTMLButtonElement>(".dm-reel__opt")];
-    expect(options.map((option) => option.textContent)).toEqual(["1min", "2min", "3min", "Export video"]);
-    expect(options.map((option) => option.disabled)).toEqual([false, true, true, false]);
+    expect(options.map((option) => option.textContent)).toEqual(["1min", "2min", "3min"]);
+    expect(options.map((option) => option.disabled)).toEqual([false, true, true]);
+
+    // Export video is on the arrow beside Highlights, which a short demo has disabled too
+    const arrows = [...view.root.querySelectorAll<HTMLButtonElement>(".dm-card .dm-hl__arrow")];
+    expect(arrows.map((arrow) => arrow.disabled)).toEqual([true, false]);
+    arrows[1].click();
+    expect([...document.querySelectorAll(".dm-hl-menu__item")].map((item) => item.textContent)).toEqual([
+      "Export video",
+    ]);
+    // Opening the menu closes the reel dialog
+    expect(document.querySelector<HTMLElement>(".dm-reel")?.hidden).toBe(true);
     view.destroy();
   });
 });

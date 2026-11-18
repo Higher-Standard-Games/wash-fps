@@ -27,10 +27,6 @@ export function buildIdentityFrame(label: string, ghostText: string): IdentityFr
 
   const panel = document.createElement("section");
   panel.className = "welcome__panel";
-  const kanji = document.createElement("div");
-  kanji.className = "welcome__kanji";
-  kanji.setAttribute("aria-hidden", "true");
-  kanji.textContent = "名";
   const inner = document.createElement("div");
   inner.className = "welcome__inner";
 
@@ -51,7 +47,7 @@ export function buildIdentityFrame(label: string, ghostText: string): IdentityFr
     wordmark.hidden = false;
   });
   inner.append(logo, wordmark);
-  panel.append(kanji, inner);
+  panel.append(inner);
 
   const stage = document.createElement("div");
   stage.className = "welcome__stage";
@@ -89,18 +85,15 @@ export function narrowOntoRail(root: HTMLElement, done: () => void): void {
   }, MOVE_MS);
 }
 
-/** A screen: a kicker over a big title, and a line under it. */
-export function identityScreen(kicker: string, title: string, lead?: string | Array<string | Node>): HTMLFormElement {
+/** A screen: a big title, and a line under it. */
+export function identityScreen(title: string, lead?: string | Array<string | Node>): HTMLFormElement {
   const form = document.createElement("form");
   form.className = "welcome__screen";
   form.autocomplete = "off";
-  const kick = document.createElement("div");
-  kick.className = "welcome__kicker";
-  kick.textContent = kicker;
   const heading = document.createElement("h1");
   heading.className = "welcome__title";
   heading.textContent = title;
-  form.append(kick, heading);
+  form.append(heading);
   if (lead) {
     const paragraph = document.createElement("p");
     paragraph.className = "welcome__lead";

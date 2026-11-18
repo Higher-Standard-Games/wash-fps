@@ -60,7 +60,7 @@ export class WelcomeOverlay {
   }
 
   private buildNameScreen(): HTMLFormElement {
-    const form = identityScreen("Welcome", "Who are you?");
+    const form = identityScreen("Who are you?");
     this.nameSlot = createSlot({
       id: "welcome-name",
       label: "Your player name",
@@ -69,7 +69,7 @@ export class WelcomeOverlay {
       counted: true,
       say: "2–16 characters: letters, numbers, _ and -",
     });
-    this.nameKey = createRaisedKey({ label: "Play →", hint: "That's it", variants: ["ink", "go"] });
+    this.nameKey = createRaisedKey({ label: "Play →", variants: ["ink", "go"] });
     this.nameKey.type = "submit";
 
     const row = document.createElement("div");
@@ -104,7 +104,7 @@ export class WelcomeOverlay {
   }
 
   private buildRestoreScreen(): HTMLFormElement {
-    const form = identityScreen("Welcome back", "Paste your key", "Your name comes back with it.");
+    const form = identityScreen("Paste your key", "Your name comes back with it.");
     this.keySlot = createSlot({
       id: "welcome-key",
       label: "Your player key",
@@ -112,7 +112,7 @@ export class WelcomeOverlay {
       prefix: "WASHOI-",
       say: `${KEY_LENGTH} characters. Dashes and spaces don't matter.`,
     });
-    this.keyKey = createRaisedKey({ label: "Restore →", hint: "Back to it", variants: ["ink", "go"] });
+    this.keyKey = createRaisedKey({ label: "Restore →", variants: ["ink", "go"] });
     this.keyKey.type = "submit";
     this.keyKey.disabled = true;
     wireKeySlot(this.keySlot, (_key, whole) => {

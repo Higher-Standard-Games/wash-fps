@@ -8,7 +8,13 @@
 
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { HistoryPage, StatsQuery, StatsSummary } from "../../../lobby/PlayerStatsStore";
-import type { FeaturedDemoInfo, GametypeInfo, LeaderboardEntry, RatingPool } from "../../../lobby/types";
+import type {
+  CampaignBoardResponse,
+  FeaturedDemoInfo,
+  GametypeInfo,
+  LeaderboardEntry,
+  RatingPool,
+} from "../../../lobby/types";
 import { canonicalMatchStats } from "../../../shared/ranking/MatchStats";
 import { RATING_POLICY } from "../../../shared/ranking/RatingPolicy";
 
@@ -54,7 +60,10 @@ export interface NewUiApi {
     query: Pick<StatsQuery, "gametype" | "scope"> & { limit?: number; beforeSequence?: number },
   ): Promise<UiResult<HistoryPage>>;
   getFeaturedDemos(query: FeaturedDemosQuery): Promise<UiResult<FeaturedDemo[]>>;
+  getCampaignBoard(): Promise<UiResult<CampaignBoard>>;
 }
+
+export type CampaignBoard = Pick<CampaignBoardResponse, "missionCount" | "scorers" | "finishers" | "missions">;
 
 const UNAVAILABLE: Record<PendingUiFeature, string> = {
   playerStats: "Player stats are unavailable on this lobby server.",
@@ -88,6 +97,14 @@ export function bindPlayerStats(client: LobbyClient, supported: boolean): void {
 export function bindLeaderboard(client: LobbyClient, supported: boolean, skillRatings = false): void {
   leaderboardClient = client;
   leaderboardSupported = supported && skillRatings;
+}
+
+let campaignBoardClient: LobbyClient | null = null;
+let campaignBoardSupported = false;
+/** The campaign boards come with a lobby that runs the campaign. */
+export function bindCampaignBoard(client: LobbyClient, supported: boolean): void {
+  campaignBoardClient = client;
+  campaignBoardSupported = supported;
 }
 
 export function bindFeaturedDemos(client: LobbyClient, supported: boolean): void {
@@ -243,6 +260,22 @@ export const newUiApi: NewUiApi = {
     try {
       const { entries } = await featuredClient.requestFeaturedDemos(query);
       return { status: "ready", data: entries };
+    } catch (error) {
+      return { status: "unavailable", reason: (error as Error).message };
+    }
+  },
+  async getCampaignBoard() {
+    if (!campaignBoardSupported || !campaignBoardClient?.connected) {
+      return {
+        status: "unavailable",
+        reason: campaignBoardClient?.connected
+          ? "This lobby server runs no campaign."
+          : "The lobby server is offline. The campaign boards come back with it.",
+      };
+    }
+    try {
+      const { missionCount, scorers, finishers, missions } = await campaignBoardClient.requestCampaignBoard();
+      return { status: "ready", data: { missionCount, scorers, finishers, missions } };
     } catch (error) {
       return { status: "unavailable", reason: (error as Error).message };
     }

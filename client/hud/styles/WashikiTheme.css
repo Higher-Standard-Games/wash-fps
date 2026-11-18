@@ -4079,15 +4079,6 @@ html[data-cl-hud="0"]
   opacity: 0.55;
 }
 
-.fps-loadout-kicker {
-  font-family: var(--w-font-body);
-  font-size: calc(11px * var(--ui-scale, 1));
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: hsl(45, 92%, 64%);
-}
-
 .fps-loadout-heading {
   font-family: var(--w-font-display);
   font-size: calc(30px * var(--ui-scale, 1));

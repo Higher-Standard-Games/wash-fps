@@ -342,13 +342,10 @@ export function applyChoice(choice: CvarChoice): void {
  * most frames it also turns outlines off, so the others turn player and weapon
  * outlines back on (leaving the outline size, so Bold stays Bold).
  */
-export const VIDEO_PRESETS: Array<
-  CvarChoice<"ultralow" | "smooth" | "balanced" | "pretty"> & { line: string; bars: number }
-> = [
+export const VIDEO_PRESETS: Array<CvarChoice<"ultralow" | "smooth" | "balanced" | "pretty"> & { bars: number }> = [
   {
     id: "ultralow",
     label: "Ultralow",
-    line: "Frames above all: half resolution, flat map colours, no antialiasing, lights, gibs, marks, fog or outlines.",
     bars: 0,
     values: {
       r_bloom: 0,
@@ -382,7 +379,6 @@ export const VIDEO_PRESETS: Array<
   {
     id: "smooth",
     label: "Smooth",
-    line: "The most frames. Plain water, no light shafts, no bloom, hard-edged halos.",
     bars: 1,
     values: {
       r_bloom: 0,
@@ -414,7 +410,6 @@ export const VIDEO_PRESETS: Array<
   {
     id: "balanced",
     label: "Balanced",
-    line: "The look the game ships with.",
     bars: 2,
     values: {
       r_bloom: 0,
@@ -447,7 +442,6 @@ export const VIDEO_PRESETS: Array<
   {
     id: "pretty",
     label: "Pretty",
-    line: "Adds glow, reflections and see-through water. Wants a strong graphics card.",
     bars: 3,
     values: {
       r_bloom: 1.3,
@@ -633,11 +627,11 @@ export function resetSideColors(): void {
   }
 }
 
-/** Outline thickness: Thin is the game's default size, Bold twice it. */
+/** Outline thickness: Thin is the game's default size, Bold a third thicker. */
 export const OUTLINE_CHOICES: CvarChoice<"off" | "thin" | "bold">[] = [
   { id: "off", label: "Off", values: { cl_player_outline: 0 } },
-  { id: "thin", label: "Thin", values: { cl_player_outline: 1, cl_player_outline_size: 25 } },
-  { id: "bold", label: "Bold", values: { cl_player_outline: 1, cl_player_outline_size: 50 } },
+  { id: "thin", label: "Thin", values: { cl_player_outline: 1, cl_player_outline_size: 19 } },
+  { id: "bold", label: "Bold", values: { cl_player_outline: 1, cl_player_outline_size: 25 } },
 ];
 
 /** A glow of the players' own that makes them stand out in dark corners. */
@@ -665,10 +659,10 @@ export interface HexColor {
 
 /** The game's defaults (green, and red on a hit) are among them. */
 export const CROSSHAIR_COLORS: HexColor[] = [
+  { value: "F4F7FF", label: "White" },
   { value: "00FF00", label: "Green" },
   { value: "00E7FF", label: "Cyan" },
   { value: "FFB400", label: "Amber" },
-  { value: "F4F7FF", label: "White" },
   { value: "FF4FD8", label: "Magenta" },
   { value: "FF3355", label: "Red" },
 ];
@@ -685,12 +679,12 @@ export const HIT_COLORS: HexColor[] = [
 
 export type SettingsPageId = "controls" | "controller" | "gameplay" | "video" | "audio";
 
-export const SETTINGS_PAGES: Array<{ id: SettingsPageId; title: string; hint: string; ghost: string }> = [
-  { id: "controls", title: "Controls", hint: "Keys · mouse", ghost: "KEYS" },
-  { id: "controller", title: "Controller", hint: "Sticks · buttons", ghost: "PAD" },
-  { id: "gameplay", title: "Gameplay", hint: "Aim · colours", ghost: "AIM" },
-  { id: "video", title: "Video", hint: "Quality", ghost: "VIDEO" },
-  { id: "audio", title: "Audio", hint: "Volume", ghost: "SOUND" },
+export const SETTINGS_PAGES: Array<{ id: SettingsPageId; title: string; ghost: string }> = [
+  { id: "controls", title: "Controls", ghost: "KEYS" },
+  { id: "controller", title: "Controller", ghost: "PAD" },
+  { id: "gameplay", title: "Gameplay", ghost: "AIM" },
+  { id: "video", title: "Video", ghost: "VIDEO" },
+  { id: "audio", title: "Audio", ghost: "SOUND" },
 ];
 
 /** The cvars each page's reset puts back. Controls also puts back every key. */

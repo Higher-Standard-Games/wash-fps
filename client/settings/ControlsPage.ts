@@ -16,7 +16,6 @@ import {
   assignKey,
   codeName,
   codesFor,
-  cvarDefault,
   FIXED_KEYS,
   type InputCode,
   inputName,
@@ -54,19 +53,19 @@ export class ControlsPage {
   constructor(private readonly host: ControlsHost) {
     this.root = el("div", "fps-set-controls");
 
-    const keyboard = card("Keyboard", "Click a key to choose what it does", "fps-set-card--keyboard");
+    const keyboard = card("Keyboard", "fps-set-card--keyboard");
     this.board = this.diagram.board;
     keyboard.append(this.board);
 
-    this.mouseCard = card("Mouse", undefined, "fps-set-card--mouse");
+    this.mouseCard = card("Mouse", "fps-set-card--mouse");
     this.mouseCard.append(this.diagram.mouse);
     this.mouseCard.addEventListener("contextmenu", (event) => event.preventDefault());
 
-    const actions = card("What each key does", "Click an action, then press the key you want", "fps-set-card--acts");
+    const actions = card("What each key does", "fps-set-card--acts");
     this.actsEl = el("div", "fps-set-acts");
     actions.append(this.actsEl);
 
-    const feel = card("Mouse feel", undefined, "fps-set-card--feel");
+    const feel = card("Mouse feel", "fps-set-card--feel");
     const tune = el("div", "fps-set-stack");
     feel.append(tune);
     slider(host, tune, {
@@ -76,22 +75,18 @@ export class ControlsPage {
       step: 0.1,
       get: () => Cvar.getNumber("m_sensitivity"),
       set: (value) => Cvar.set("m_sensitivity", value),
-      initial: () => Number(cvarDefault("m_sensitivity")),
     });
     slider(host, tune, {
       name: "While aiming",
-      help: "Share of your sensitivity while you hold Aim",
       min: 0.1,
       max: 1,
       step: 0.05,
       format: formatPercent,
       get: () => Cvar.getNumber("cl_ads_sensitivity"),
       set: (value) => Cvar.set("cl_ads_sensitivity", value),
-      initial: () => Number(cvarDefault("cl_ads_sensitivity")),
     });
     seg(host, tune, {
       name: "Always run",
-      help: "On: you run all the time, and holding Sprint walks",
       choices: [
         { value: 0, label: "Off" },
         { value: 1, label: "On" },
@@ -181,7 +176,6 @@ export class ControlsPage {
     );
     row.dataset.action = action.id;
     const name = el("span", "fps-set-act__name", action.name);
-    if (action.fixed) name.append(el("span", "fps-set-act__fixed", "Fixed"));
     const keys = el("span", "fps-set-act__keys");
     for (const code of codes) {
       const chip = el("span", `fps-set-chip${action.fixed ? " fps-set-chip--fixed" : ""}`, codeName(code));

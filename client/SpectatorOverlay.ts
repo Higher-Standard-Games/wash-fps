@@ -41,7 +41,6 @@ export class SpectatorOverlay {
   private onSpectateCallback: (() => void) | null = null;
   private joinKeys: HTMLElement;
   private hintEl: HTMLElement;
-  private modeEl: HTMLElement;
   private titleEl: HTMLElement;
   private rail: TwinRail;
   private shotEl: HTMLElement;
@@ -112,7 +111,6 @@ export class SpectatorOverlay {
     this.rail = buildTwinRail({
       label: "Join the match",
       steps: ["Server", "Handshake", "Map load"],
-      context: "Live match",
     });
     this.rail.setSteps(["done", "done", "done"]);
 
@@ -121,10 +119,8 @@ export class SpectatorOverlay {
     this.shotEl.setAttribute("aria-hidden", "true");
 
     const hero = el("div", "connecting-overlay__hero");
-    this.modeEl = el("div", "connecting-overlay__kicker");
     this.titleEl = el("h1", "connecting-overlay__title");
     hero.append(
-      this.modeEl,
       this.titleEl,
       el("p", "connecting-overlay__lead", "You're in the stands. Join the match, or look around first."),
     );
@@ -275,17 +271,17 @@ export class SpectatorOverlay {
     const state = MatchStateManager.getInstance();
     const map = MapLoader.getInstance().getCurrentMap() ?? "";
     const name = map ? (mapTitle(map) ?? map) : "Live match";
-    this.modeEl.textContent = state.gametypeName ? state.gametypeName.toUpperCase() : "LIVE MATCH";
     const lines = titleLines(name.toUpperCase());
     this.titleEl.replaceChildren(...lines.map((line) => el("span", "", line)));
     this.titleEl.style.setProperty("--co-title-chars", String(Math.max(6, ...lines.map((line) => line.length))));
+    this.rail.setFact("mode", "Mode", state.gametypeName || "—");
     this.rail.setFact("map", "Map", map || "—");
     // A map with no levelshot installed keeps the stage's own gradient
     if (map) this.shotEl.style.setProperty("--co-shot", `url("/data/levelshots/${encodeURIComponent(map)}.jpg")`);
     else this.shotEl.style.removeProperty("--co-shot");
 
     const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
-    const spectate = createRaisedKey({ label: "Spectate", hint: "Fly around", variants: ["cream"] });
+    const spectate = createRaisedKey({ label: "Spectate", variants: ["cream"] });
     spectate.addEventListener("click", () => this.onSpectateCallback?.());
 
     // Team-ness comes from the gametype, not from the presence of team scores:
@@ -300,21 +296,17 @@ export class SpectatorOverlay {
       }
       const side = (teamId: "udon" | "soba", label: string) => {
         const count = sizes[teamId];
-        const key = createRaisedKey({
-          label,
-          hint: count === 0 ? "Empty" : count === 1 ? "1 player" : `${count} players`,
-          variants: ["cta"],
-        });
+        const key = createRaisedKey({ label: `${label} · ${count}`, variants: ["cta"] });
         key.addEventListener("click", () => this.onJoinGameCallback?.(teamId));
         return key;
       };
       this.joinKeys.replaceChildren(side("udon", "Join Udon"), side("soba", "Join Soba"), spectate);
       this.hintEl.textContent = `${joinKey} puts you on the side with fewer players`;
     } else {
-      const join = createRaisedKey({ label: "Join game", hint: `or press ${joinKey}`, variants: ["cta"] });
+      const join = createRaisedKey({ label: "Join game", variants: ["cta"] });
       join.addEventListener("click", () => this.onJoinGameCallback?.());
       this.joinKeys.replaceChildren(join, spectate);
-      this.hintEl.textContent = "";
+      this.hintEl.textContent = `or press ${joinKey}`;
     }
   }
 }

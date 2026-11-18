@@ -66,7 +66,7 @@ function bind(pages: Record<string, LeaderboardPage>): LeaderboardQuery[] {
 
 function view(): LeaderboardView {
   const board = new LeaderboardView(MODES, document.createElement("div"));
-  document.body.append(board.root, board.railMiddle);
+  document.body.append(board.root);
   return board;
 }
 
@@ -87,7 +87,7 @@ describe("LeaderboardView", () => {
     expect(pin?.textContent).toContain("#12");
     expect(pin?.textContent).toContain(you.name);
     expect(pin?.textContent).toContain("320 rating points behind #10");
-    expect(board.root.textContent).toContain("Career skill rating");
+    expect(board.root.querySelector(".lb-count")?.textContent).toMatch(/^\d+ ranked players?$/);
     expect(board.root.textContent).toContain("Provisional");
     expect(board.root.textContent).not.toContain("Most wins");
     expect(board.root.querySelector("img")).toBeNull();
@@ -106,22 +106,6 @@ describe("LeaderboardView", () => {
     expect(board.root.querySelector(".lb-plinth--2 .lb-plinth__tag--bot")).toBeNull();
   });
 
-  it("shows your rank in every mode in the rail, and says when you have none", async () => {
-    const asked = bind({ duel: { entries: duel, total: 12, localPlayerRank: 12, localPlayerEntry: you } });
-    const board = view();
-    await board.refresh();
-
-    const ranks = [...board.railMiddle.querySelectorAll(".lb-rail__rank")].map((key) => key.textContent);
-    expect(ranks[0]).toContain("#12");
-    expect(ranks[0]).toContain("1120");
-    expect(ranks[1]).toContain("Unranked");
-    // The shown mode's board carries your row; the other mode asks for one row only
-    expect(asked).toEqual([
-      { gametype: "duel", period: "month", offset: 0, limit: 100, system: "trueskill" },
-      { gametype: "amphi", period: "month", offset: 0, limit: 1, system: "trueskill" },
-    ]);
-  });
-
   it("does not pin you twice when you are on the board", async () => {
     const top = entry(2, 19, 1, "42", "This player");
     bind({ duel: { entries: [entry(1, 20), top], total: 2, localPlayerRank: 2, localPlayerEntry: top } });
@@ -135,7 +119,9 @@ describe("LeaderboardView", () => {
     bind({ duel: { entries: duel, total: 12, localPlayerRank: 12, localPlayerEntry: you } });
     const board = view();
     await board.refresh();
-    const topHundred = [...board.root.querySelectorAll<HTMLButtonElement>(".raised-key--tab")].at(-1);
+    const topHundred = [...board.root.querySelectorAll<HTMLButtonElement>(".raised-key--tab")].find(
+      (key) => key.textContent === "Top 100",
+    );
     topHundred?.click();
     await Promise.resolve();
 
@@ -154,7 +140,6 @@ describe("LeaderboardView", () => {
     const board = view();
     await board.refresh();
     expect(board.root.querySelector(".lb-status")?.textContent).toBe("Rankings are unavailable on this lobby server.");
-    expect(board.railMiddle.textContent).toContain("Rankings are unavailable");
     expect(board.root.querySelectorAll(".lb-row:not(.lb-row--head), .lb-plinth")).toHaveLength(0);
   });
 

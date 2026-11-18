@@ -305,7 +305,10 @@
   display: none;
 }
 
-.lobby__rail-nav .raised-key--nav:is(:hover, :focus-visible):not(:disabled):not([aria-current="page"]) {
+.lobby__rail-nav
+  .raised-key--nav:not(.raised-key--quick, .raised-key--campaign):is(:hover, :focus-visible):not(:disabled):not(
+    [aria-current="page"]
+  ) {
   --key-face: linear-gradient(180deg, hsl(51 100% 73%), hsl(46 100% 58%) 55%, hsl(42 100% 50%));
   --key-side: linear-gradient(180deg, hsl(36 92% 40%), hsl(28 88% 25%));
   --key-text: hsl(250 45% 8%);
@@ -326,6 +329,33 @@
   --key-face: linear-gradient(180deg, hsl(322 100% 84%), hsl(322 100% 70%) 55%, hsl(318 90% 57%));
 }
 
+/* Campaign: the campaign's dark plate, purple with scanlines and cream italic
+   type on a pink shadow. Open, it presses in as the deep plate, gold on deep purple. */
+.lobby__rail-nav .raised-key--campaign:not([aria-current="page"]) {
+  --key-face:
+    repeating-linear-gradient(180deg, hsl(276 70% 70% / 0.08) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(278 56% 30%), hsl(270 54% 22%) 48%, hsl(262 52% 16%));
+  --key-side: linear-gradient(180deg, hsl(266 50% 12%), hsl(260 50% 6%));
+  --key-text: var(--cream, hsl(45 100% 95%));
+  --key-shadow: hsla(262, 60%, 8%, 0.45);
+}
+
+.lobby__rail-nav .raised-key--campaign:not([aria-current="page"]):is(:hover, :focus-visible):not(:disabled) {
+  --key-face:
+    repeating-linear-gradient(180deg, hsl(276 70% 70% / 0.08) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(280 60% 40%), hsl(272 56% 30%) 48%, hsl(264 54% 22%));
+}
+
+.lobby__rail-nav .raised-key--campaign[aria-current="page"],
+.lobby__rail-nav .raised-key--campaign[aria-current="page"]:is(:hover, :focus-visible, :active):not(:disabled) {
+  --key-face:
+    repeating-linear-gradient(180deg, hsl(286 80% 70% / 0.08) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(284 72% 30%), hsl(274 74% 20%) 45%, hsl(264 78% 12%));
+  --key-side: linear-gradient(180deg, hsl(266 50% 12%), hsl(260 50% 6%));
+  --key-text: hsl(46 100% 57%);
+  --key-shadow: hsla(262, 60%, 8%, 0.45);
+}
+
 @media (max-width: 1500px) {
   .lobby__rail-nav .raised-key__hint {
     display: none;
@@ -341,6 +371,13 @@
 
 .lobby__rail-mid[hidden] {
   display: none;
+}
+
+/* On a short window the settings pages scroll rather than run under the player card */
+.lobby__rail-mid--settings {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .lobby__rail-label {
@@ -490,16 +527,10 @@
 
 .lobby__rail-who strong {
   overflow: hidden;
-  font: 800 14px / 1.2 var(--w-font-display, "Orbitron", monospace);
+  font: 800 18px / 1.2 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.05em;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.lobby__rail-who span {
-  font: 600 12px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.08em;
-  color: hsla(45, 100%, 95%, 0.55);
 }
 
 .lobby__rail-utility {
@@ -526,7 +557,7 @@
   }
 
   .lobby__rail-utility .raised-key__label {
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.06em;
   }
 }
@@ -742,6 +773,10 @@
   padding-bottom: 6px;
 }
 
+.lobby__modes[hidden] {
+  display: none;
+}
+
 .lobby__mode-key {
   min-width: 100px;
   height: 46px;
@@ -788,10 +823,12 @@
 
 /* ── A page's boards, as keys (Leaderboard and Demos) ── */
 
+/* One row of board keys, however many the page has (the Leaderboard's Campaign is a fourth) */
 .lobby__boards {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
   gap: 22px;
 }
 
@@ -816,16 +853,10 @@
 }
 
 .lobby__board-name {
-  font: 900 clamp(16px, 1.25vw, 22px) / 1 var(--w-font-display, "Orbitron", monospace);
+  white-space: nowrap;
+  font: 900 clamp(16px, 1.25vw, 28px) / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.lobby__board-sub {
-  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--key-sub);
 }
 
 .raised-key--tab.is-open,
@@ -837,12 +868,28 @@
   --key-sub: hsla(250, 45%, 8%, 0.66);
 }
 
-.lobby__rule {
+/* The count of ranked players: the campaign's gold plate, its number large */
+/* Doubled class: the campaign stylesheet loads later and sets the plate's own padding */
+.lb-count.campaign-plate {
   flex: 0 0 auto;
-  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.18em;
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 4px 16px 8px 0;
+  padding: 14px 40px 16px 32px;
+  font: 800 15px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.5);
+}
+
+.lb-count strong {
+  font: 900 26px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.02em;
+}
+
+.lb-count[hidden] {
+  display: none;
 }
 
 .lobby__find {
@@ -873,6 +920,7 @@
 
 @media (max-width: 900px) {
   .lobby__boards {
+    grid-auto-flow: row;
     grid-template-columns: 1fr;
   }
 }
@@ -903,15 +951,16 @@
   padding: 18px 26px 22px 40px;
 }
 
+/* The chosen mode stays pressed in, in its own colour */
 .raised-key--mode[aria-pressed="true"] {
-  --key-press: -0.5;
+  --key-press: 0.62;
   --key-face: linear-gradient(180deg, var(--accent-hi), var(--accent) 58%, var(--accent-lo));
   --key-side: linear-gradient(180deg, var(--accent-side-hi), var(--accent-side-lo));
   --key-sub: hsla(250, 45%, 8%, 0.66);
 }
 
 .raised-key--mode[aria-pressed="true"]:is(:hover, :focus-visible):not(:disabled) {
-  --key-press: -0.75;
+  --key-press: 0.62;
   --key-face: linear-gradient(180deg, var(--accent-hi), var(--accent) 58%, var(--accent-lo));
   --key-side: linear-gradient(180deg, var(--accent-side-hi), var(--accent-side-lo));
   --key-text: hsl(250 45% 8%);
@@ -942,7 +991,6 @@
   gap: 10px;
 }
 
-.lobby__mode-number,
 .lobby__mode-status {
   font: 800 13px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.14em;
@@ -964,7 +1012,7 @@
 }
 
 .lobby__mode-subtitle {
-  font: 700 14px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  font: 700 19px / 1 var(--w-font-body, "Rajdhani", sans-serif);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--key-sub);
@@ -1118,21 +1166,20 @@
   color: var(--cream);
 }
 
+/* How full the lobby is: four slanted pips, as the video settings show cost */
 .lobby-chat__online {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.55);
+  gap: 3px;
 }
 
-.lobby-chat__dot {
-  flex: 0 0 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.lobby-chat__online i {
+  width: 18px;
+  height: 9px;
+  background: hsla(45, 100%, 95%, 0.14);
+  clip-path: polygon(25% 0, 100% 0, 75% 100%, 0 100%);
+}
+
+.lobby-chat__online i.on {
   background: hsl(322 100% 58%);
   box-shadow: 0 0 8px hsl(322 100% 58%);
 }
@@ -1574,4 +1621,10 @@
 
 .raised-key--room:disabled :is(.raised-key__label, .raised-key__hint) {
   opacity: 0.7;
+}
+
+/* The campaign key's type, after every other key label rule it overrides */
+.lobby__rail-nav .raised-key--campaign .raised-key__label {
+  font-style: italic;
+  text-shadow: 0.06em 0.07em 0 hsl(322 95% 40% / 0.7);
 }

@@ -9,6 +9,8 @@
 import { background } from "../../../../engine/core/AsyncErrors";
 import { createRaisedKey, setRaisedKeyText } from "../../../../engine/ui/components/RaisedKey";
 import type { CampaignClear, CampaignMissionInfo } from "../../../../lobby/types";
+import { CampaignBoardPane } from "../CampaignBoardPane";
+import { newUiApi } from "../NewUiApi";
 import { CampaignCutscene } from "./CampaignCutscene";
 import type { CampaignState } from "./CampaignSession";
 import { type CampaignCard, campaignStory, FINALE_CARD } from "./CampaignStory";
@@ -81,6 +83,12 @@ export class CampaignView {
   private shownCurrent: string | null = null;
   /** A parallax update waiting for the next frame. */
   private parallaxFrame = 0;
+  /** The campaign's leaderboard, in place of the operations while it is open. */
+  private readonly boardKey: HTMLButtonElement;
+  private readonly board: HTMLElement;
+  private readonly boardPane = new CampaignBoardPane();
+  /** Bumped on each opening: a late answer for an earlier one is dropped. */
+  private boardSeq = 0;
 
   constructor(private readonly options: CampaignViewOptions) {
     this.root = el("div", "lobby__page campaign");
@@ -90,11 +98,16 @@ export class CampaignView {
     const head = el("header", "campaign__head");
     this.countEl = el("p", "campaign__count campaign-plate campaign-plate--dark");
     // The count beside the title; the campaign's opening under both, in a caption box like the cards'
+    this.boardKey = createRaisedKey({ label: "Leaderboard", variants: ["nav"] });
+    this.boardKey.classList.add("campaign__board-key");
+    this.boardKey.setAttribute("aria-pressed", "false");
+    this.boardKey.addEventListener("click", () => (this.board.hidden ? this.openBoard() : this.closeBoard()));
     head.append(
       el("h1", "lobby__title campaign__title campaign-plate", "Campaign"),
       this.countEl,
       el("p", "campaign__ingress", INGRESS),
       el("p", "campaign__ingress campaign__ingress--short", INGRESS_SHORT),
+      this.boardKey,
     );
 
     this.list = el("ol", "campaign__list");
@@ -102,7 +115,22 @@ export class CampaignView {
     this.notice = el("p", "campaign__notice");
     this.notice.setAttribute("role", "status");
 
-    this.root.append(head, this.notice, this.list);
+    // The leaderboard takes the operations' place, with a close key in its corner
+    this.board = el("section", "campaign__board");
+    this.board.setAttribute("aria-label", "Campaign leaderboard");
+    this.board.hidden = true;
+    const close = el("button", "campaign__board-close", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close the leaderboard");
+    close.addEventListener("click", () => this.closeBoard());
+    this.board.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      this.closeBoard();
+    });
+    this.board.append(close, this.boardPane.root);
+
+    this.root.append(head, this.notice, this.list, this.board);
     this.list.addEventListener("scroll", () => this.queueParallax(), { passive: true });
     this.render();
   }
@@ -134,6 +162,42 @@ export class CampaignView {
     });
   }
 
+  /** Show the leaderboard in the operations' place, read fresh from the lobby. */
+  private openBoard(): void {
+    this.board.hidden = false;
+    this.list.hidden = true;
+    this.notice.hidden = true;
+    this.root.classList.add("campaign--board");
+    this.boardKey.setAttribute("aria-pressed", "true");
+    const sequence = ++this.boardSeq;
+    this.boardPane.render({ state: "loading" });
+    background(
+      newUiApi.getCampaignBoard().then((result) => {
+        if (sequence !== this.boardSeq || this.board.hidden) return;
+        this.boardPane.render(
+          result.status === "ready"
+            ? { state: "ready", board: result.data }
+            : { state: "failed", reason: result.reason },
+        );
+      }),
+      "Loading the campaign leaderboard",
+    );
+    this.board.querySelector<HTMLElement>(".campaign__board-close")?.focus();
+  }
+
+  /** Back to the operations. */
+  private closeBoard(): void {
+    if (this.board.hidden) return;
+    this.boardSeq++;
+    this.board.hidden = true;
+    this.list.hidden = false;
+    this.notice.hidden = false;
+    this.root.classList.remove("campaign--board");
+    this.boardKey.setAttribute("aria-pressed", "false");
+    this.render();
+    this.boardKey.focus();
+  }
+
   /** The campaign as the lobby (or this browser's copy) has it; null before either. */
   setState(state: CampaignState | null): void {
     this.state = state;
@@ -146,13 +210,6 @@ export class CampaignView {
     this.startable = startable;
     this.reason = reason;
     this.render();
-  }
-
-  /** "2 / 8 cleared", for the rail key. */
-  progressHint(): string {
-    const length = this.state?.length ?? 0;
-    if (!length) return "Story";
-    return `${this.clearedCount()} / ${length} cleared`;
   }
 
   /** Bring the mission to play next into view, once the page is on screen. */

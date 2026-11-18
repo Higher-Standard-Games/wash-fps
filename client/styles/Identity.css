@@ -261,17 +261,6 @@
   pointer-events: none;
 }
 
-.welcome__kanji {
-  position: absolute;
-  z-index: 0;
-  right: 14%;
-  bottom: 6%;
-  font: 400 clamp(220px, 24vw, 420px) / 0.8 serif;
-  color: hsla(30, 90%, 22%, 0.09);
-  pointer-events: none;
-  user-select: none;
-}
-
 .welcome__inner {
   position: relative;
   z-index: 1;
@@ -311,13 +300,6 @@
 
 .welcome__screen[hidden] {
   display: none;
-}
-
-.welcome__kicker {
-  font: 700 13px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: hsla(250, 45%, 8%, 0.62);
 }
 
 .welcome__title {
@@ -586,44 +568,180 @@
   text-transform: uppercase;
 }
 
-.profile-record__head span {
-  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.45);
-}
-
 .profile-record__status {
-  margin: 12px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 22px;
+  margin: 16px 0 18px;
   font: 600 16px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
   color: hsla(45, 100%, 95%, 0.7);
+}
+
+/* A total on a plate: its number large, its word beside it */
+.profile-record__total.campaign-plate {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 26px 12px 20px;
+  font: 800 14px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.profile-record__total strong {
+  font: 900 26px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.02em;
 }
 
 .profile-record__rows {
   display: flex;
   flex-direction: column;
+  gap: 14px;
 }
 
-.profile-record__rating {
+/* One mode's record: a dark card edged in the mode's colour */
+.profile-card {
+  --mode-accent: hsl(276 90% 64%);
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px 18px;
+  background: linear-gradient(105deg, hsla(250, 45%, 9%, 0.88), hsla(250, 45%, 6%, 0.72));
+  border-left: 5px solid var(--mode-accent);
+  clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%);
+}
+
+.profile-card[data-mode="duel"] {
+  --mode-accent: hsl(182 95% 52%);
+}
+
+.profile-card[data-mode="amphi"] {
+  --mode-accent: hsl(100 85% 52%);
+}
+
+.profile-card[data-mode="ffa"] {
+  --mode-accent: hsl(46 100% 57%);
+}
+
+.profile-card[data-mode="snd"] {
+  --mode-accent: hsl(322 95% 62%);
+}
+
+.profile-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile-card__mode {
+  overflow: hidden;
+  padding: 0;
+  font: 900 24px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
   color: var(--cream);
-  font-variant-numeric: tabular-nums;
 }
 
-.profile-record__history-key {
+.profile-card__history-key {
   border: 0;
   background: transparent;
-  color: inherit;
-  font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.profile-record__history-key:hover,
-.profile-record__history-key:focus-visible {
-  text-decoration: underline;
+.profile-card__history-key:hover,
+.profile-card__history-key:focus-visible {
+  color: var(--mode-accent);
 }
 
-.profile-stats__detail,
+.profile-card__rank {
+  font: 900 30px / 1 var(--w-font-display, "Orbitron", monospace);
+  color: hsl(45 100% 60%);
+}
+
+.profile-card__rating {
+  margin: 0;
+  font: 600 17px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(45, 100%, 95%, 0.7);
+}
+
+.profile-card__rating strong {
+  font: 900 22px / 1 var(--w-font-display, "Orbitron", monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--mode-accent);
+}
+
+/* Wins against losses: one bar, its counts beside it */
+.profile-card__record {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-card__bar {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  height: 10px;
+  min-width: 80px;
+  overflow: hidden;
+  background: hsla(250, 30%, 30%, 0.5);
+  clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
+}
+
+.profile-card__bar-wins {
+  background: hsl(100 80% 52%);
+}
+
+.profile-card__bar-draws {
+  background: hsla(45, 30%, 80%, 0.55);
+}
+
+.profile-card__bar-losses {
+  background: hsl(350 85% 58%);
+}
+
+.profile-card__counts {
+  flex: 0 0 auto;
+  font: 700 16px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  color: var(--cream);
+}
+
+/* The totals: big numbers, each with its word */
+.profile-card__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  gap: 10px 12px;
+  margin: 2px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid hsla(276, 90%, 64%, 0.22);
+  list-style: none;
+}
+
+.profile-card__stats li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: 600 15px / 1.1 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(45, 100%, 95%, 0.65);
+}
+
+.profile-card__stats strong {
+  font: 800 20px / 1.1 var(--w-font-display, "Orbitron", monospace);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--cream);
+}
+
+.profile-card__note {
+  margin: 0;
+  font: 600 15px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(45, 100%, 95%, 0.65);
+}
+
 .profile-history__match p {
   margin: 6px 12px 12px;
   font: 600 14px / 1.4 var(--w-font-body, "Rajdhani", sans-serif);
@@ -644,44 +762,6 @@
 .profile-record {
   max-height: calc(100vh - 180px);
   overflow-y: auto;
-}
-
-.profile-record__row {
-  display: grid;
-  grid-template-columns: minmax(72px, 1fr) 54px 92px repeat(3, minmax(32px, 48px));
-  justify-content: start;
-  gap: 8px;
-  align-items: center;
-  min-height: 40px;
-  padding: 7px 12px;
-  border-bottom: 1px solid hsla(182, 65%, 48%, 0.28);
-  background: hsla(250, 45%, 7%, 0.7);
-  font: 700 15px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
-}
-
-.profile-record__row:last-child {
-  border-bottom: 0;
-}
-
-.profile-record__mode {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.profile-record__rank {
-  font: 900 17px / 1 var(--w-font-display, "Orbitron", monospace);
-  color: hsl(45 100% 60%);
-}
-
-/* Rows follow the space in the stage, including smaller desktop sidebars. */
-@container (max-width: 520px) {
-  .profile-record__row {
-    grid-template-columns: minmax(0, 1fr) 54px minmax(88px, 1fr);
-    row-gap: 10px;
-  }
 }
 
 /* Keep both account controls and records in one scrollable narrow layout. */

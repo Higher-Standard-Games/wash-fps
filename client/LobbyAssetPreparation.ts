@@ -111,7 +111,8 @@ export class LobbyAssetPreparation {
             : "Preparing downloads…";
     return {
       label,
-      detail: detail || this.error || (this.selectedMap ? `Common assets and ${this.selectedMap}` : "Common assets"),
+      // Live transfers or the error; empty otherwise, the package list says the rest
+      detail: detail || this.error || "",
       packages: [...this.packages].map(([filename, state]) => ({
         filename,
         state: transfers.find((transfer) => transfer.filename === filename)?.phase ?? state,

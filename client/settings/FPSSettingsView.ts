@@ -60,7 +60,7 @@ export class FPSSettingsView {
   private toastEl: HTMLElement | null = null;
   private toastTimer = 0;
   private cancelScheduledRedraw: (() => void) | null = null;
-  private readonly savedLabel = el("span", "fps-set-saved", "Saved as you go");
+  private readonly savedLabel = el("span", "fps-set-saved");
   private readonly unsubscribeStorage: () => void;
   private readonly onKeyDown = (event: KeyboardEvent) => {
     // Immediate: the screen's own Esc listens on the same node, and would close it too
@@ -107,11 +107,13 @@ export class FPSSettingsView {
       const failed = failedPreferenceKeys().some((key) =>
         ["engine_cvars", "engine.movementVars", "shag_keybindings", "ui_theme_mode"].includes(key),
       );
-      this.savedLabel.textContent = failed ? "Session only · could not save" : "Saved as you go";
+      // Saving is silent; the label shows only when this browser cannot keep settings
+      this.savedLabel.hidden = !failed;
+      this.savedLabel.textContent = failed ? "Session only · could not save" : "";
       this.savedLabel.classList.toggle("is-session-only", failed);
       this.savedLabel.title = failed
         ? "Changes work now, but could not be saved in this browser. They may be lost on reload."
-        : "Settings are saved in this browser as you change them.";
+        : "";
     };
     this.unsubscribeStorage = EventBus.on(PREFERENCE_STORAGE_EVENT, refreshStorage);
     refreshStorage();
@@ -121,7 +123,7 @@ export class FPSSettingsView {
     this.nav = el("nav", "fps-set-pages");
     this.nav.setAttribute("aria-label", "Settings pages");
     for (const page of SETTINGS_PAGES) {
-      const key = createRaisedKey({ label: page.title, hint: page.hint, variants: ["nav", "page"] });
+      const key = createRaisedKey({ label: page.title, variants: ["nav", "page"] });
       key.dataset.settingsPage = page.id;
       key.addEventListener("click", () => this.showPage(page.id));
       this.nav.append(key);

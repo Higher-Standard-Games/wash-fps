@@ -248,7 +248,6 @@ describe("campaign page", () => {
     expect(finale?.classList.contains("campaign-card--locked")).toBe(true);
     expect(finale?.querySelector("img")).toBeNull();
     expect(finale?.dataset.from).toBe("locked");
-    expect(view.progressHint()).toBe("1 / 8 cleared");
     // Cleared and next alike carry one bullet, the game mode's name
     expect([...view.root.querySelectorAll(".campaign-card__brief")].map((list) => list.textContent)).toEqual([
       "Duel",

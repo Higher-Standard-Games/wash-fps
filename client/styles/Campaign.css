@@ -160,13 +160,40 @@
   display: grid;
   flex: 0 0 auto;
   grid-template-areas:
-    "title count"
-    "intro intro";
-  grid-template-columns: auto auto;
-  justify-content: start;
+    "title count . board"
+    "intro intro . board";
+  grid-template-columns: auto auto 1fr auto;
   align-items: center;
   gap: 18px 34px;
   margin-top: calc(var(--banner-height) * -0.36);
+}
+
+/* The leaderboard key at the head's far end, beside the count and the opening */
+.campaign__board-key {
+  grid-area: board;
+  align-self: end;
+  margin-right: 18px;
+}
+
+.campaign__board-key .raised-key__face {
+  padding-right: 40px;
+}
+
+.campaign__board-key[aria-pressed="true"] {
+  --key-press: 0.62;
+}
+
+/* Lined like the rail's Campaign key: scanlines over the gold, italic type on a pink shadow */
+.campaign__board-key {
+  --key-face:
+    repeating-linear-gradient(180deg, hsla(40, 100%, 30%, 0.14) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(52 100% 66%), hsl(46 100% 57%) 45%, hsl(40 98% 47%));
+}
+
+.campaign__board-key:is(:hover, :focus-visible):not(:disabled) {
+  --key-face:
+    repeating-linear-gradient(180deg, hsla(40, 100%, 30%, 0.14) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(52 100% 74%), hsl(48 100% 64%) 45%, hsl(42 98% 54%));
 }
 
 .campaign__title {
@@ -959,4 +986,142 @@
   .campaign-cut--waiting .campaign-cut__status {
     animation: none;
   }
+}
+
+/* The leaderboard in the operations' place: the campaign's night, edged in its pink */
+.campaign__board {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 22px;
+  padding: 26px 26px 24px;
+  overflow-y: auto;
+  background: linear-gradient(180deg, hsla(276, 60%, 16%, 0.92), hsla(262, 56%, 9%, 0.96));
+  border: 2px solid hsla(322, 95%, 62%, 0.45);
+  box-shadow: 8px 9px 0 hsl(250 50% 3%);
+  clip-path: polygon(0 0, calc(100% - 26px) 0, 100% 26px, 100% 100%, 0 100%);
+}
+
+.campaign__board[hidden] {
+  display: none;
+}
+
+.campaign__board-close {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  right: 34px;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border: 0;
+  color: var(--ink, hsl(250 45% 7%));
+  font: 900 34px / 1 var(--w-font-display, "Orbitron", monospace);
+  background: var(--campaign-gold);
+  box-shadow: 4px 5px 0 hsl(250 50% 3%);
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  cursor: pointer;
+}
+
+.campaign__board-close:is(:hover, :focus-visible) {
+  outline: none;
+  background: var(--campaign-pink);
+  color: var(--cream, hsl(45 100% 95%));
+}
+
+/* On the campaign's purple the boards drop their navy and take its pink edges */
+.campaign__board .lb-board,
+.campaign__board .lb-camp__op {
+  background: hsla(262, 50%, 7%, 0.72);
+  border-color: hsla(322, 95%, 62%, 0.3);
+}
+
+/* Room to breathe: bigger type, more space, fewer cards to a row; the panel scrolls */
+.campaign__board .lb-camp {
+  gap: 34px;
+}
+
+.campaign__board .lb-camp__lists {
+  gap: 30px;
+  margin-right: 84px;
+}
+
+.campaign__board .lb-camp__head {
+  padding: 22px 26px 12px 22px;
+}
+
+.campaign__board .lb-camp__title {
+  font-size: 22px;
+}
+
+.campaign__board .lb-row--camp {
+  min-height: 56px;
+  padding: 0 26px 0 22px;
+  font-size: 20px;
+}
+
+.campaign__board .lb-row--camp .lb-row__rank {
+  font-size: 22px;
+}
+
+.campaign__board .lb-row--camp .lb-row__name {
+  font-size: 19px;
+}
+
+.campaign__board .lb-row--head {
+  min-height: 40px;
+  font-size: 12px;
+}
+
+.campaign__board .lb-camp__ops {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 40px 30px;
+  padding: 10px 4px 20px;
+}
+
+.campaign__board .lb-camp__op {
+  gap: 16px;
+  padding-bottom: 24px;
+}
+
+.campaign__board .lb-camp__op-title {
+  font-size: 24px;
+}
+
+.campaign__board .lb-camp__op-top {
+  gap: 10px;
+  padding: 4px 26px 0;
+}
+
+.campaign__board .lb-camp__op-top li {
+  font-size: 20px;
+}
+
+.campaign__board .lb-camp__op-top li::before {
+  flex-basis: 44px;
+  font-size: 16px;
+}
+
+.campaign__board .lb-camp__op-top strong {
+  font-size: 22px;
+}
+
+.campaign__board .lb-camp__op-first {
+  margin: 4px 26px 0;
+  padding-top: 14px;
+  font-size: 17px;
+}
+
+.campaign__board .lb-camp__empty {
+  padding: 18px 26px 22px;
+  font-size: 18px;
+}
+
+/* The Leaderboard key's type, after the key rules it overrides */
+.campaign__board-key .raised-key__label {
+  font-style: italic;
+  text-shadow: 0.06em 0.07em 0 hsl(322 95% 50% / 0.55);
 }

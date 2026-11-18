@@ -37,7 +37,7 @@ describe("match menu mode keys", () => {
   it("puts the mode's keys right under Resume, and closes before acting", () => {
     const menu = new FPSPauseMenu();
     const onClick = vi.fn();
-    menu.setModeKeys([{ id: "loadout", label: "Loadout", hint: "Rocket Launcher + Machinegun", onClick }]);
+    menu.setModeKeys([{ id: "loadout", label: "Loadout", onClick }]);
     menu.open();
 
     const keys = [...document.querySelectorAll<HTMLElement>(".fps-match-menu__keys > *")];
@@ -47,7 +47,7 @@ describe("match menu mode keys", () => {
     expect(keys.slice(resume + 1, slot).every((key) => key.hidden)).toBe(true);
 
     const loadout = document.querySelector<HTMLButtonElement>('[data-mode-key="loadout"]');
-    expect(loadout?.textContent).toContain("Rocket Launcher + Machinegun");
+    expect(loadout?.textContent).toBe("Loadout");
     loadout?.click();
     expect(onClick).toHaveBeenCalledOnce();
     expect(menu.isOpen()).toBe(false);
@@ -66,7 +66,7 @@ describe("kit picker", () => {
   const confirmKey = () => document.querySelector<HTMLButtonElement>(".fps-loadout-confirm");
 
   it("joins without a way back, and says what it is for", () => {
-    const picker = new FPSLoadoutPicker("Deathmatch");
+    const picker = new FPSLoadoutPicker();
     picker.open(() => {}, undefined, { timing: "respawn" });
     expect(confirmKey()?.textContent).toContain("Enter the match");
     expect(document.querySelector(".fps-loadout-back")).toBeNull();
@@ -75,7 +75,7 @@ describe("kit picker", () => {
   });
 
   it("changing a kit says when it applies, and Back or Esc keep the old one", () => {
-    const picker = new FPSLoadoutPicker("Deathmatch");
+    const picker = new FPSLoadoutPicker();
     const onConfirm = vi.fn();
     const onCancel = vi.fn();
     picker.open(
@@ -105,7 +105,7 @@ describe("kit picker", () => {
   it("builds the weapon stand only while open", () => {
     previews.built = 0;
     previews.live = 0;
-    const picker = new FPSLoadoutPicker("Deathmatch");
+    const picker = new FPSLoadoutPicker();
     expect(previews.built).toBe(0);
     picker.open(() => {}, undefined, { timing: "respawn" });
     expect(previews.live).toBe(1);
@@ -115,7 +115,7 @@ describe("kit picker", () => {
   });
 
   it("confirms the kit on screen", () => {
-    const picker = new FPSLoadoutPicker("Amphi");
+    const picker = new FPSLoadoutPicker();
     const onConfirm = vi.fn();
     picker.open(onConfirm, { primary: "voltaic", secondary: "plasmagun" }, { timing: "respawn" });
     confirmKey()?.click();

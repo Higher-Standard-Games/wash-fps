@@ -59,6 +59,20 @@ tougher each minute:
 runs the full ten minutes, and the side ahead at the end wins. A tie plays
 on in one-minute overtimes until a side leads.
 
+## Leaderboard
+
+**Leaderboard**, at the right of the page's heading, shows the campaign's boards
+in place of the operations; the **×** in their corner, or Esc, goes back.
+
+- **Top scorers** adds up each player's best frags in every operation they
+  cleared, with how many of the eight they have cleared. Equal frags rank the
+  player with more cleared first.
+- **First to finish** lists who cleared every operation first.
+- Each operation shows its top fraggers and who cleared it first.
+
+Only won runs count, and every player in a co-op clear is credited with their
+own frags. Banned and deleted accounts are left out; AI players never appear.
+
 ## Music
 
 The operations page has its own song, the campaign opener, looping. Opening

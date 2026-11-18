@@ -234,7 +234,8 @@ export class FPSHud {
         .catch((e) => log.warn("FPSChat", "chat send failed:", e));
     });
     this._chatKeyHandler = (e: KeyboardEvent) => {
-      // T (Q3 messagemode habit) or Enter (modern habit) both open talk mode.
+      // T (Q3 messagemode habit) or Enter (modern habit) both open talk mode; Y,
+      // or either with Shift held, opens it to the team.
       if ((e.code !== "KeyT" && e.code !== "KeyY" && e.code !== "Enter" && e.code !== "NumpadEnter") || e.repeat)
         return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
@@ -259,7 +260,7 @@ export class FPSHud {
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
       e.preventDefault(); // don't leak the "t" into the input
       e.stopPropagation();
-      this._chat.openInput(e.code === "KeyY");
+      this._chat.openInput(e.code === "KeyY" || e.shiftKey);
     };
     document.addEventListener("keydown", this._chatKeyHandler, true);
 

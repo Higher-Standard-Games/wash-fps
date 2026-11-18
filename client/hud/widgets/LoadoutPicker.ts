@@ -61,7 +61,7 @@ export class FPSLoadoutPicker {
   /** Last path handed to the stand, so re-rendering does not reload the model. */
   private lastPreviewed: string | null = null;
 
-  constructor(private readonly modeName = "Search & Destroy") {
+  constructor() {
     this.element = document.createElement("div");
     this.element.className = "fps-loadout";
     this.element.style.display = "none";
@@ -147,13 +147,10 @@ export class FPSLoadoutPicker {
 
     const hero = document.createElement("div");
     hero.className = "fps-loadout-hero";
-    const kicker = document.createElement("div");
-    kicker.className = "fps-loadout-kicker";
-    kicker.textContent = this.modeName;
     const heading = document.createElement("div");
     heading.className = "fps-loadout-heading";
     heading.textContent = "Loadout";
-    hero.append(kicker, heading);
+    hero.append(heading);
     if (this.options.changing && this.options.timing) {
       const note = document.createElement("div");
       note.className = "fps-loadout-note";
@@ -202,7 +199,7 @@ export class FPSLoadoutPicker {
     panel.appendChild(confirm);
 
     if (this.options.onCancel) {
-      const back = createRaisedKey({ label: "Back", hint: "Keep your kit", variants: ["sm", "cream"] });
+      const back = createRaisedKey({ label: "Back", variants: ["sm", "cream"] });
       back.classList.add("fps-loadout-back");
       back.onclick = () => this.cancel();
       panel.appendChild(back);

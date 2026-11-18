@@ -56,9 +56,9 @@ import { LobbyAssetPreparation } from "./LobbyAssetPreparation";
 import { LobbyDownloadIndicator } from "./LobbyDownloadIndicator";
 import { LobbyFullNotice, offlineRetryDelaySec } from "./LobbyFullNotice";
 import { createLobbyMusicKey } from "./LobbyMusicKey";
-import { describeRoom, playKeys, roomCountLabel, sortRooms } from "./LobbyRooms";
+import { describeRoom, playKeys, sortRooms } from "./LobbyRooms";
 import { LobbyWelcomeGuide } from "./LobbyWelcomeGuide";
-import { bindFeaturedDemos, bindLeaderboard, bindPlayerStats, newUiApi } from "./NewUiApi";
+import { bindCampaignBoard, bindFeaturedDemos, bindLeaderboard, bindPlayerStats, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
 import { buildRailBrand } from "./RailBrand";
 import { nameColor, RoomChatView } from "./RoomChatView";
@@ -128,6 +128,9 @@ const CHAT_LOG_LIMIT = 100;
 const DROP_IN_ANSWER_MS = 8000;
 
 const ACCENT_PROPERTIES = ["--accent", "--accent-hi", "--accent-lo", "--accent-side-hi", "--accent-side-lo"];
+/** Pips in the chat's online meter, and the cap they scale to when the lobby names none. */
+const ONLINE_PIPS = 4;
+const FALLBACK_LOBBY_CAPACITY = 64;
 /** The team's devlog, opened from the Play page's links bar in a new tab. */
 const DEVLOG_URL = "https://washoi.net/devlog";
 
@@ -175,6 +178,8 @@ export class LobbyPanel extends GamePanel {
   private livePlayers: PlayerInfo[] = [];
   private serverGametypes: GametypeInfo[] = [];
   private playerCountBadge: HTMLElement | null = null;
+  /** The most players the lobby takes, which the chat's online pips are scaled to. */
+  private lobbyCapacity = FALLBACK_LOBBY_CAPACITY;
   private chatMessagesEl: HTMLElement | null = null;
   private chatScroll: ChatScroll | null = null;
   private chatColumnEl: HTMLElement | null = null;
@@ -184,7 +189,6 @@ export class LobbyPanel extends GamePanel {
   /** A page's own list for the rail's middle, by tab. */
   private readonly railMids = new Map<string, HTMLElement>();
   private playerNameEl: HTMLElement | null = null;
-  private playerMetaEl: HTMLElement | null = null;
   private selectedModeId = "duel";
   private currentTabId = "matchmaking";
   private queuePending = false;
@@ -229,7 +233,6 @@ export class LobbyPanel extends GamePanel {
   // Live matches
   private liveMatches: LiveMatchInfo[] = [];
   private matchListEl: HTMLElement | null = null;
-  private matchCountBadge: HTMLElement | null = null;
 
   private demosView: DemosView | null = null;
   private _preloadedLevelshots = new Set<string>();
@@ -252,9 +255,10 @@ export class LobbyPanel extends GamePanel {
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);
+    bindCampaignBoard(this.lobbyClient, false);
     UIStyles.injectCSS("campaign", campaignCSSRaw);
-    this.addTab("matchmaking", "Play", this.buildMatchmakingTab());
     this.addTab("campaign", "Campaign", this.buildCampaignTab());
+    this.addTab("matchmaking", "Play online", this.buildMatchmakingTab());
     this.addTab("leaderboard", "Leaderboard", this.buildLeaderboardTab());
     this.addTab("demos", "Demos", this.buildDemosTab());
     this.addTab("settings", "Settings", this.buildSettingsTab());
@@ -391,35 +395,23 @@ export class LobbyPanel extends GamePanel {
     nav.className = "lobby__rail-nav";
     nav.setAttribute("aria-label", "Pages");
     // Quick play: the one key a new player needs, from here straight into a match
-    const quickPlay = createRaisedKey({ label: "Quick play", hint: "FFA vs bots", variants: ["nav", "quick"] });
+    const quickPlay = createRaisedKey({ label: "Quick play", variants: ["nav", "quick"] });
     quickPlay.title = "A private free-for-all against four bots, on a random map";
     quickPlay.disabled = true;
     quickPlay.addEventListener("click", () => this.startQuickPlay());
     this.quickPlayKey = quickPlay;
     nav.appendChild(quickPlay);
     this.tabBar.className = "lobby__rail-keys";
-    for (const [id, hint] of [
-      ["matchmaking", "4 modes"],
-      ["campaign", "Story"],
-      ["leaderboard", "Top players"],
-      ["demos", "Replays"],
-    ]) {
+    // Campaign follows Quick play, in the campaign's own purple
+    for (const id of ["campaign", "matchmaking", "leaderboard", "demos"]) {
       const button = this.tabButton(id);
-      if (button) raiseKey(button, { label: button.textContent ?? "", hint, variants: ["nav"] });
+      const variants = id === "campaign" ? ["nav", "campaign"] : ["nav"];
+      if (button) raiseKey(button, { label: button.textContent ?? "", variants });
     }
     nav.appendChild(this.tabBar);
     rail.appendChild(nav);
     rail.appendChild(this.buildSocialColumn());
     rail.appendChild(this.buildSettingsRail());
-    for (const [tabId, middle] of [
-      ["leaderboard", this.leaderboardView?.railMiddle],
-      ["demos", this.demosView?.railMiddle],
-    ] as const) {
-      if (!middle) continue;
-      middle.hidden = true;
-      this.railMids.set(tabId, middle);
-      rail.appendChild(middle);
-    }
 
     const player = document.createElement("div");
     player.className = "lobby__rail-player";
@@ -429,8 +421,7 @@ export class LobbyPanel extends GamePanel {
     const who = document.createElement("div");
     who.className = "lobby__rail-who";
     this.playerNameEl = document.createElement("strong");
-    this.playerMetaEl = document.createElement("span");
-    who.append(this.playerNameEl, this.playerMetaEl);
+    who.append(this.playerNameEl);
     player.append(avatar, who);
     rail.appendChild(player);
 
@@ -454,12 +445,8 @@ export class LobbyPanel extends GamePanel {
   /** The settings pages, in the rail's middle while Settings is open. */
   private buildSettingsRail(): HTMLElement {
     const mid = document.createElement("section");
-    mid.className = "lobby__rail-mid";
+    mid.className = "lobby__rail-mid lobby__rail-mid--settings";
     mid.setAttribute("aria-label", "Settings pages");
-    const heading = document.createElement("div");
-    heading.className = "lobby__rail-label";
-    heading.textContent = "Settings";
-    mid.appendChild(heading);
     if (this.settingsView) mid.appendChild(this.settingsView.takePageNav());
     this.railMids.set("settings", mid);
     mid.hidden = true;
@@ -488,17 +475,8 @@ export class LobbyPanel extends GamePanel {
     if (this.playerNameEl) {
       this.playerNameEl.textContent = name ?? currentIdentity()?.name ?? PlayerProfile.load().name;
     }
-    if (this.playerMetaEl) {
-      this.playerMetaEl.textContent = !this.lobbyClient.connected
-        ? this.lobbyFullNotice?.isFull
-          ? "Servers full"
-          : "Offline"
-        : this.currentLobbyId
-          ? "In a room"
-          : "In lobby";
-    }
     const playKey = this.tabButton("matchmaking");
-    if (playKey) setRaisedKeyText(playKey, "Play", this.currentLobbyId ? "In a room" : "4 modes");
+    if (playKey) setRaisedKeyText(playKey, "Play online");
     this.refreshQuickPlayKey();
     this.refreshCampaign();
   }
@@ -533,6 +511,7 @@ export class LobbyPanel extends GamePanel {
           this.localLobbyPlayerId = msg.playerId;
           this.refreshPlayerCard(msg.identity?.name);
           this.serverGametypes = msg.gametypes || [];
+          this.lobbyCapacity = msg.maxPlayers && msg.maxPlayers > 0 ? msg.maxPlayers : FALLBACK_LOBBY_CAPACITY;
           this.privateLobbySupported = msg.features?.privateLobbies === true;
           this.campaignSupported = msg.features?.campaign === true;
           this.loadCachedCampaign(msg.identity?.id);
@@ -540,6 +519,7 @@ export class LobbyPanel extends GamePanel {
           bindLeaderboard(this.lobbyClient, msg.features?.leaderboard === true, msg.features?.skillRatings === true);
           bindPlayerStats(this.lobbyClient, msg.features?.playerStats === true);
           bindFeaturedDemos(this.lobbyClient, msg.features?.featuredDemos === true);
+          bindCampaignBoard(this.lobbyClient, msg.features?.campaign === true);
           this.demosView?.connected(msg.features?.demoOwnership === true, this.currentTabId === "demos");
           if (this.currentTabId === "leaderboard") void this.leaderboardView?.refresh();
           this.queuePending = false;
@@ -694,6 +674,7 @@ export class LobbyPanel extends GamePanel {
           bindLeaderboard(this.lobbyClient, false);
           bindPlayerStats(this.lobbyClient, false);
           bindFeaturedDemos(this.lobbyClient, false);
+          bindCampaignBoard(this.lobbyClient, false);
           this.leaderboardView?.clear();
           this.demosView?.disconnected();
           if (this.playNoticeEl) this.playNoticeEl.textContent = "";
@@ -890,6 +871,7 @@ export class LobbyPanel extends GamePanel {
     this.privateLobbySupported = false;
     this.campaignSupported = false;
     bindFeaturedDemos(this.lobbyClient, false);
+    bindCampaignBoard(this.lobbyClient, false);
     this.leaderboardView?.clear();
     this.demosView?.disconnected();
     if (this.playNoticeEl) this.playNoticeEl.textContent = "";
@@ -904,9 +886,14 @@ export class LobbyPanel extends GamePanel {
   }
 
   private refreshPlayerList(): void {
-    if (this.playerCountBadge) {
-      this.playerCountBadge.textContent = this.lobbyClient.connected ? `${this.livePlayers.length} online` : "Offline";
-    }
+    const badge = this.playerCountBadge;
+    if (!badge) return;
+    // How full the lobby is, as four pips against its cap, not a count
+    const online = this.lobbyClient.connected ? this.livePlayers.length : 0;
+    const lit =
+      online > 0 ? Math.min(ONLINE_PIPS, Math.max(1, Math.ceil((online / this.lobbyCapacity) * ONLINE_PIPS))) : 0;
+    badge.setAttribute("aria-label", this.lobbyClient.connected ? `${online} online` : "Offline");
+    for (const [index, pip] of [...badge.children].entries()) pip.classList.toggle("on", index < lit);
   }
 
   /** "Duel on Proving Grounds started · Reaper vs Eclipse": public rooms only, as the list is. */
@@ -1128,17 +1115,14 @@ export class LobbyPanel extends GamePanel {
     tiles.className = "lobby__play-tiles";
     tiles.setAttribute("role", "group");
     tiles.setAttribute("aria-label", "Game modes");
-    GAME_MODES.forEach((mode, index) => {
+    GAME_MODES.forEach((mode) => {
       const band = document.createElement("span");
       band.className = "lobby__mode-band";
-      const number = document.createElement("span");
-      number.className = "lobby__mode-number";
-      number.textContent = String(index + 1).padStart(2, "0");
       const status = document.createElement("span");
       status.className = "lobby__mode-status";
       const top = document.createElement("span");
       top.className = "lobby__mode-top";
-      top.append(number, status);
+      top.append(status);
       const name = document.createElement("span");
       name.className = "lobby__mode-name";
       name.textContent = mode.title;
@@ -1172,7 +1156,6 @@ export class LobbyPanel extends GamePanel {
     this.findButton.addEventListener("click", () => this.showMatchLobby(this.selectedModeId));
     const privateButton = createRaisedKey({
       label: "🔒 Private lobby",
-      hint: "Invite only or bot matches",
       variants: ["cream", "private"],
     });
     this.privateButton = privateButton;
@@ -1262,14 +1245,6 @@ export class LobbyPanel extends GamePanel {
     const mid = document.createElement("section");
     mid.className = "lobby__rail-mid lobby__rail-mid--rooms";
     mid.setAttribute("aria-label", "Rooms");
-    const heading = document.createElement("div");
-    heading.className = "lobby__rail-label";
-    const label = document.createElement("span");
-    label.textContent = "Rooms";
-    const count = document.createElement("span");
-    this.matchCountBadge = count;
-    heading.append(label, count);
-    mid.appendChild(heading);
     mid.appendChild(this.buildMatchList());
     this.refreshMatchList();
     return mid;
@@ -1286,15 +1261,15 @@ export class LobbyPanel extends GamePanel {
     for (const match of this.liveMatches) rememberMapTitle(match.map, match.mapDisplayName);
     if (!this.matchListEl) return;
     const matches = sortRooms(this.liveMatches);
-    if (this.matchCountBadge) this.matchCountBadge.textContent = roomCountLabel(matches);
     if (matches.length === 0) {
+      // No rooms: the list stays empty, and says so only when the lobby cannot be reached
+      if (this.lobbyClient.connected) {
+        this.matchListEl.replaceChildren();
+        return;
+      }
       const empty = document.createElement("p");
       empty.className = "lobby__rail-empty";
-      empty.textContent = this.lobbyClient.connected
-        ? "No rooms yet. Pick a mode to start one."
-        : this.lobbyFullNotice?.isFull
-          ? "Servers are full."
-          : "Lobby server offline.";
+      empty.textContent = this.lobbyFullNotice?.isFull ? "Servers are full." : "Lobby server offline.";
       this.matchListEl.replaceChildren(empty);
       return;
     }
@@ -1383,11 +1358,9 @@ export class LobbyPanel extends GamePanel {
     title.textContent = "Lobby";
     const online = document.createElement("span");
     online.className = "lobby-chat__online";
-    const dot = document.createElement("span");
-    dot.className = "lobby-chat__dot";
-    const count = document.createElement("span");
-    this.playerCountBadge = count;
-    online.append(dot, count);
+    online.setAttribute("role", "img");
+    for (let i = 0; i < ONLINE_PIPS; i++) online.append(document.createElement("i"));
+    this.playerCountBadge = online;
     head.append(title, online);
     panel.appendChild(head);
 
@@ -1518,8 +1491,6 @@ export class LobbyPanel extends GamePanel {
           ? "Leave your room on the Play page to start a mission."
           : "";
     view.setStartable(reason === "" && !this.queuePending && !this.startingMission, reason);
-    const key = this.tabButton("campaign");
-    if (key) setRaisedKeyText(key, "Campaign", view.progressHint());
   }
 
   /**
@@ -1688,6 +1659,7 @@ export class LobbyPanel extends GamePanel {
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);
+    bindCampaignBoard(this.lobbyClient, false);
     this.demosView?.destroy();
     this.leaderboardView?.destroy();
     this.roomChatView?.destroy();

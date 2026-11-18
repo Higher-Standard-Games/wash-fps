@@ -204,11 +204,7 @@ export class ProfileView {
 
   private buildKeyScreen(): HTMLElement {
     this.leadNameEl = document.createElement("b");
-    const screen = identityScreen("Keep your name", "Your player key", [
-      "Paste it on any computer to play as ",
-      this.leadNameEl,
-      ".",
-    ]);
+    const screen = identityScreen("Your player key", ["Paste it on any computer to play as ", this.leadNameEl, "."]);
     screen.addEventListener("submit", (event) => event.preventDefault());
 
     const plate = document.createElement("div");
@@ -270,7 +266,7 @@ export class ProfileView {
     this.keyMissingEl.className = "welcome__lead";
     this.keyMissingEl.textContent = "Your key is made the first time you reach the lobby.";
 
-    this.doneKey = createRaisedKey({ label: "Done", hint: "Back to the lobby", variants: ["ink", "go"] });
+    this.doneKey = createRaisedKey({ label: "Done", variants: ["ink", "go"] });
     this.doneKey.addEventListener("click", () => this.close());
     const go = document.createElement("div");
     go.className = "welcome__go";
@@ -294,11 +290,7 @@ export class ProfileView {
   }
 
   private buildNameScreen(): HTMLElement {
-    const form = identityScreen(
-      "Change your name",
-      "Who are you?",
-      "Everyone sees it: in rooms, chat and the rankings.",
-    );
+    const form = identityScreen("Who are you?", "Everyone sees it: in rooms, chat and the rankings.");
     this.nameSlot = createSlot({
       id: "profile-name",
       label: "Your player name",
@@ -306,7 +298,7 @@ export class ProfileView {
       counted: true,
       say: "2–16 characters: letters, numbers, _ and -",
     });
-    this.renameKey = createRaisedKey({ label: "Save →", hint: "Yours alone", variants: ["ink", "go"] });
+    this.renameKey = createRaisedKey({ label: "Save →", variants: ["ink", "go"] });
     this.renameKey.type = "submit";
     const go = document.createElement("div");
     go.className = "welcome__go";
@@ -328,7 +320,6 @@ export class ProfileView {
 
   private buildSwitchScreen(): HTMLElement {
     const form = identityScreen(
-      "Play as someone else",
       "Paste a key",
       "This browser forgets its own key when it switches, so save that key first.",
     );
@@ -339,7 +330,7 @@ export class ProfileView {
       prefix: "WASHOI-",
       say: `${KEY_LENGTH} characters. Dashes and spaces don't matter.`,
     });
-    this.switchKey = createRaisedKey({ label: "Use it →", hint: "One key, one player", variants: ["ink", "go"] });
+    this.switchKey = createRaisedKey({ label: "Use it →", variants: ["ink", "go"] });
     this.switchKey.type = "submit";
     this.switchKey.disabled = true;
     wireKeySlot(this.switchSlot, (_key, whole) => {
@@ -368,7 +359,6 @@ export class ProfileView {
    */
   private buildDeleteScreen(): HTMLElement {
     const form = identityScreen(
-      "Delete account",
       "Delete this player?",
       `Your name becomes ${DELETED_ACCOUNT_NAME} on the leaderboards and in the demo list, your synced settings are erased, and your key stops working. Demos already recorded stay as they are.`,
     );
@@ -390,7 +380,7 @@ export class ProfileView {
       prefix: "WASHOI-",
       say: "Paste this player's whole key to confirm.",
     });
-    this.deleteKey = createRaisedKey({ label: "Delete for good", hint: "Can't be undone", variants: ["ink", "go"] });
+    this.deleteKey = createRaisedKey({ label: "Delete for good", variants: ["ink", "go"] });
     this.deleteKey.type = "submit";
     this.deleteKey.disabled = true;
     wireKeySlot(this.deleteSlot, () => this.refreshDeleteState());
@@ -420,9 +410,7 @@ export class ProfileView {
     head.className = "profile-record__head";
     const title = document.createElement("h2");
     title.textContent = "Your record";
-    const hint = document.createElement("span");
-    hint.textContent = "Career skill";
-    head.append(title, hint);
+    head.append(title);
     this.recordStatusEl = document.createElement("p");
     this.recordStatusEl.className = "profile-record__status";
     this.recordStatusEl.setAttribute("role", "status");
@@ -449,22 +437,22 @@ export class ProfileView {
     }
     if (!this.client.connected) {
       this.recordRowsEl.replaceChildren();
-      this.recordStatusEl.textContent = "Connect to the lobby to see your record.";
+      this.recordText("Connect to the lobby to see your record.");
       return;
     }
     const availability = newUiApi.getFeatureStatus("leaderboard");
     if (availability.status !== "ready") {
       this.recordRowsEl.replaceChildren();
-      this.recordStatusEl.textContent = availability.reason;
+      this.recordText(availability.reason);
       return;
     }
     const modes = this.modes();
     if (modes.length === 0) {
       this.recordRowsEl.replaceChildren();
-      this.recordStatusEl.textContent = "This lobby is not advertising any mode.";
+      this.recordText("This lobby is not advertising any mode.");
       return;
     }
-    if (this.recordRowsEl.childElementCount === 0) this.recordStatusEl.textContent = "Reading the rankings…";
+    if (this.recordRowsEl.childElementCount === 0) this.recordText("Reading the rankings…");
 
     const asked = await Promise.all(
       modes.map(async (mode) => ({
@@ -481,46 +469,62 @@ export class ProfileView {
 
     const standings: { mode: GametypeInfo; row: NonNullable<LeaderboardPage["localPlayerEntry"]> }[] = [];
     let refusal = "";
-    let excluded = 0;
     for (const { mode, result } of asked) {
       if (result.status !== "ready") refusal ||= result.reason;
-      else {
-        excluded += result.data.localProcessing?.excluded ?? 0;
-        if (result.data.localPlayerEntry) standings.push({ mode, row: result.data.localPlayerEntry });
-      }
+      else if (result.data.localPlayerEntry) standings.push({ mode, row: result.data.localPlayerEntry });
     }
 
     this.recordRowsEl.replaceChildren();
     if (standings.length === 0) {
-      this.recordStatusEl.textContent =
-        refusal ||
-        (excluded
-          ? `${excluded} ${excluded === 1 ? "match" : "matches"} did not qualify for skill rating.`
-          : "No ranked match yet. Finish an eligible match to get a provisional rating.");
+      this.recordText(refusal || "No ranked match yet. Finish an eligible match to get a provisional rating.");
       return;
     }
     const played = standings.reduce((sum, { row }) => sum + row.wins + row.losses + row.draws, 0);
     const best = standings.reduce((top, one) => (one.row.rank < top.row.rank ? one : top));
-    this.recordStatusEl.textContent = `${played} ${played === 1 ? "match" : "matches"} · best #${best.row.rank} in ${best.mode.name}${excluded ? ` · ${excluded} not rated` : ""}`;
+    this.recordTotals([
+      [played, played === 1 ? "match" : "matches"],
+      [`#${best.row.rank}`, `in ${best.mode.name}`],
+    ]);
     for (const { mode, row } of standings.sort((a, b) => a.row.rank - b.row.rank)) {
-      const line = document.createElement("div");
-      line.className = "profile-record__row";
-      for (const [value, kind] of [
-        [mode.name, "mode"],
-        [`#${row.rank}`, "rank"],
-        [`${row.rating}${row.provisional ? " (P)" : ""}`, "rating"],
-        [`${row.wins} W`, "w"],
-        [`${row.losses} L`, "l"],
-        [`${row.draws} D`, "d"],
-      ] as const) {
-        const cell = document.createElement("span");
-        cell.className = `profile-record__${kind}`;
-        cell.textContent = value;
-        line.append(cell);
-      }
-      line.title = `Rating ${row.rating}${row.provisional ? " · Provisional" : ""} · ${row.ratedMatches} rated matches`;
-      this.recordRowsEl.append(line);
+      const card = recordCard({
+        modeId: mode.id,
+        modeName: mode.name,
+        rank: row.rank,
+        rating: row.rating,
+        provisional: row.provisional,
+        wins: row.wins,
+        losses: row.losses,
+        draws: row.draws,
+      });
+      card.title = `${row.ratedMatches} rated ${row.ratedMatches === 1 ? "match" : "matches"}`;
+      this.recordRowsEl.append(card);
     }
+  }
+
+  /** A sentence where the totals go: why there are none yet, or what went wrong. */
+  private recordText(text: string): void {
+    this.recordStatusEl.removeAttribute("aria-label");
+    this.recordStatusEl.textContent = text;
+  }
+
+  /**
+   * The totals over the cards, each on a plate in the campaign's style: the
+   * first gold, the rest dark, each number large. A note (a mode that did not
+   * answer) follows as text.
+   */
+  private recordTotals(parts: Array<[number | string, string]>, note = ""): void {
+    const plates = parts.map(([value, label], index) => {
+      const plate = document.createElement("span");
+      plate.className = `profile-record__total campaign-plate${index > 0 ? " campaign-plate--dark" : ""}`;
+      const number = document.createElement("strong");
+      number.textContent = String(value);
+      plate.append(number, ` ${label}`);
+      return plate;
+    });
+    const sentence = parts.map(([value, label]) => `${value} ${label}`).join(" · ");
+    this.recordStatusEl.setAttribute("aria-label", note ? `${sentence} · ${note}` : sentence);
+    this.recordStatusEl.replaceChildren(...plates);
+    if (note) this.recordStatusEl.append(Object.assign(document.createElement("span"), { textContent: note }));
   }
 
   private async refreshStatsRecord(sequence: number): Promise<void> {
@@ -534,7 +538,6 @@ export class ProfileView {
     if (sequence !== this.recordSeq) return;
     this.recordRowsEl.replaceChildren();
     let matches = 0,
-      excluded = 0,
       failure = "";
     for (const { mode, result } of answers) {
       if (result.status !== "ready") {
@@ -543,45 +546,49 @@ export class ProfileView {
       }
       const summary = result.data;
       matches += summary.matches;
-      excluded += summary.excluded;
       if (!summary.matches && !summary.excluded && !summary.rating) continue;
-      const line = document.createElement("div");
-      line.className = "profile-record__row";
-      const key = document.createElement("button");
-      key.type = "button";
-      key.className = "profile-record__mode profile-record__history-key";
-      key.textContent = mode.name;
-      key.title = `Show recent ${mode.name} matches`;
-      key.addEventListener("click", () => {
-        this.historyMode = mode.id as RatingMode;
-        void this.refreshHistory();
-      });
-      line.append(key);
-      const cells = [
-        summary.rating ? `#${summary.rating.rank}` : "—",
-        summary.rating ? `${summary.rating.value}${summary.rating.provisional ? " (P)" : ""}` : "Not rated",
-        `${summary.wins} W`,
-        `${summary.losses} L`,
-        `${summary.draws} D`,
-      ];
-      for (const [i, value] of cells.entries()) {
-        const cell = document.createElement("span");
-        cell.className = `profile-record__${["rank", "rating", "w", "l", "d"][i]}`;
-        cell.textContent = value;
-        line.append(cell);
-      }
-      this.recordRowsEl.append(line);
-      const detail = document.createElement("p");
-      detail.className = "profile-stats__detail";
       const totals = summary.totals;
-      detail.textContent = totals
-        ? `${totals.frags} frags · ${totals.deaths} deaths · ${Math.round(totals.damageGiven)} enemy damage · ${Math.round(totals.activeTimeMs / 60000)} min active${mode.id === "snd" ? ` · ${totals.plants} plants · ${totals.defuses} defuses` : ""}${summary.statsMatches < summary.matches ? ` · stats available for ${summary.statsMatches}/${summary.matches} matches` : ""}`
-        : summary.matches
+      const stats: [number | string, string][] = totals
+        ? [
+            [totals.frags, "frags"],
+            [totals.deaths, "deaths"],
+            [Math.round(totals.damageGiven), "damage"],
+            [playTime(totals.activeTimeMs), "played"],
+            ...(mode.id === "snd"
+              ? ([
+                  [totals.plants, "plants"],
+                  [totals.defuses, "defuses"],
+                ] as [number, string][])
+              : []),
+          ]
+        : [];
+      const note = !totals
+        ? summary.matches
           ? "Gameplay totals unavailable for these results."
-          : "No completed matches counted yet.";
-      this.recordRowsEl.append(detail);
+          : "No completed matches counted yet."
+        : summary.statsMatches < summary.matches
+          ? `Totals from ${summary.statsMatches} of ${summary.matches} matches.`
+          : "";
+      this.recordRowsEl.append(
+        recordCard({
+          modeId: mode.id,
+          modeName: mode.name,
+          onHistory: () => {
+            this.historyMode = mode.id as RatingMode;
+            void this.refreshHistory();
+          },
+          rank: summary.rating?.rank,
+          rating: summary.rating?.value,
+          provisional: summary.rating?.provisional,
+          wins: summary.wins,
+          losses: summary.losses,
+          draws: summary.draws,
+          stats,
+          note,
+        }),
+      );
     }
-    this.recordStatusEl.textContent = `${matches} ${matches === 1 ? "match" : "matches"}${excluded ? ` · ${excluded} not rated` : ""}${failure ? ` · ${failure}` : ""}`;
+    this.recordTotals([[matches, matches === 1 ? "match" : "matches"]], failure);
     if (this.historyMode) void this.refreshHistory();
   }
 
@@ -832,4 +839,108 @@ export class ProfileView {
     this.unsubscribers.length = 0;
     this.root.remove();
   }
+}
+
+interface RecordCardFacts {
+  modeId: string;
+  modeName: string;
+  /** Opens the mode's recent matches; without it the name is plain text. */
+  onHistory?: () => void;
+  rank?: number;
+  rating?: number;
+  provisional?: boolean;
+  wins: number;
+  losses: number;
+  draws: number;
+  /** Totals as [value, what], each drawn as a big number with its word. */
+  stats?: [number | string, string][];
+  note?: string;
+}
+
+/**
+ * One mode's record: its name and rank, the rating, a bar of wins against
+ * losses and draws, and the totals as big numbers.
+ */
+function recordCard(facts: RecordCardFacts): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "profile-card";
+  card.dataset.mode = facts.modeId;
+
+  const head = document.createElement("div");
+  head.className = "profile-card__head";
+  let name: HTMLElement;
+  if (facts.onHistory) {
+    const key = document.createElement("button");
+    key.type = "button";
+    key.className = "profile-card__mode profile-card__history-key";
+    key.title = `Show recent ${facts.modeName} matches`;
+    key.addEventListener("click", facts.onHistory);
+    name = key;
+  } else {
+    name = document.createElement("span");
+    name.className = "profile-card__mode";
+  }
+  name.textContent = facts.modeName;
+  const rank = document.createElement("span");
+  rank.className = "profile-card__rank";
+  rank.textContent = facts.rank === undefined ? "" : `#${facts.rank}`;
+  head.append(name, rank);
+
+  const rating = document.createElement("p");
+  rating.className = "profile-card__rating";
+  if (facts.rating === undefined) rating.textContent = "Not rated";
+  else {
+    const value = document.createElement("strong");
+    value.textContent = String(facts.rating);
+    rating.append(value, ` rating${facts.provisional ? " · provisional" : ""}`);
+  }
+
+  const record = document.createElement("div");
+  record.className = "profile-card__record";
+  const bar = document.createElement("div");
+  bar.className = "profile-card__bar";
+  bar.setAttribute("aria-hidden", "true");
+  for (const [count, kind] of [
+    [facts.wins, "wins"],
+    [facts.draws, "draws"],
+    [facts.losses, "losses"],
+  ] as const) {
+    if (count <= 0) continue;
+    const part = document.createElement("span");
+    part.className = `profile-card__bar-${kind}`;
+    part.style.flexGrow = String(count);
+    bar.append(part);
+  }
+  const counts = document.createElement("span");
+  counts.className = "profile-card__counts";
+  counts.textContent = `${facts.wins} ${facts.wins === 1 ? "win" : "wins"} · ${facts.losses} ${facts.losses === 1 ? "loss" : "losses"}${facts.draws ? ` · ${facts.draws} ${facts.draws === 1 ? "draw" : "draws"}` : ""}`;
+  record.append(bar, counts);
+
+  card.append(head, rating, record);
+  if (facts.stats?.length) {
+    const stats = document.createElement("ul");
+    stats.className = "profile-card__stats";
+    for (const [value, what] of facts.stats) {
+      const item = document.createElement("li");
+      const number = document.createElement("strong");
+      number.textContent = typeof value === "number" ? value.toLocaleString("en-US") : value;
+      item.append(number, ` ${what}`);
+      stats.append(item);
+    }
+    card.append(stats);
+  }
+  if (facts.note) {
+    const note = document.createElement("p");
+    note.className = "profile-card__note";
+    note.textContent = facts.note;
+    card.append(note);
+  }
+  return card;
+}
+
+/** Active time as hours and minutes: "2h 14m", "54m". */
+function playTime(ms: number): string {
+  const minutes = Math.round(ms / 60000);
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
 }

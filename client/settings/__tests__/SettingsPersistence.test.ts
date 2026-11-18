@@ -59,10 +59,10 @@ describe("truthful settings persistence", () => {
       blocked.mockRestore();
       if (kind === "cvars") Cvar.set("m_sensitivity", Cvar.getNumber("m_sensitivity") + 0.25);
       else InputSystem.getInstance().resetBinding(FPS.JUMP);
-      expect(saved.textContent).toBe("Saved as you go");
+      expect(saved.hidden).toBe(true);
       view.destroy();
       writePreference("engine_cvars", "{}");
-      expect(saved.textContent).toBe("Saved as you go");
+      expect(saved.hidden).toBe(true);
     },
   );
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeRoom, isJoinable, playKeys, roomCountLabel, sortRooms } from "../LobbyRooms";
+import { describeRoom, isJoinable, playKeys, sortRooms } from "../LobbyRooms";
 
 type State = "waiting" | "playing";
 
@@ -45,15 +45,6 @@ describe("sortRooms", () => {
     const rooms = [room("b", "playing", 1, 2), room("a", "waiting", 1, 2)];
     sortRooms(rooms);
     expect(rooms.map((r) => r.id)).toEqual(["b", "a"]);
-  });
-});
-
-describe("roomCountLabel", () => {
-  it("counts the open rooms and all rooms", () => {
-    expect(roomCountLabel([room("a", "waiting", 1, 2), room("b", "waiting", 2, 2), room("c", "playing", 1, 2)])).toBe(
-      "1 of 3 open",
-    );
-    expect(roomCountLabel([])).toBe("none");
   });
 });
 

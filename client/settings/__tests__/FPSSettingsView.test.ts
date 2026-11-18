@@ -122,7 +122,7 @@ describe("FPSSettingsView", () => {
     click(reset);
     click(reset);
     expect(Cvar.getBool("cl_player_outline")).toBe(true);
-    expect(Cvar.getNumber("cl_player_outline_size")).toBe(25);
+    expect(Cvar.getNumber("cl_player_outline_size")).toBe(19);
     expect(thin.getAttribute("aria-pressed")).toBe("true");
   });
 

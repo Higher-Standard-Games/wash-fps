@@ -201,7 +201,6 @@ export interface FieldHost {
 
 export interface FieldOptions {
   name: string;
-  help?: string;
   /** Frame-rate cost, as one to three pips. */
   cost?: FrameCost;
   /** When the setting takes hold, if not at once. */
@@ -227,7 +226,6 @@ function field(options: FieldOptions): { root: HTMLElement; top: HTMLElement } {
   if (options.cost) label.append(costPips(options.cost));
   top.append(label);
   root.append(top);
-  if (options.help) root.append(el("div", "fps-set-field__help", options.help));
   return { root, top };
 }
 
@@ -260,8 +258,6 @@ export interface SliderOptions extends FieldOptions {
   step: number;
   get: () => number;
   set: (value: number) => void;
-  /** The game's default, marked beside the value when it is the one set. */
-  initial?: () => number | undefined;
   format?: (value: number) => string;
 }
 
@@ -280,8 +276,6 @@ export function slider(host: FieldHost, parent: HTMLElement, options: SliderOpti
   const draw = (current: number) => {
     range.style.setProperty("--pct", `${((current - options.min) / (options.max - options.min)) * 100}%`);
     value.textContent = format(current);
-    const initial = options.initial?.();
-    value.classList.toggle("is-default", initial !== undefined && Math.abs(initial - current) < 1e-6);
   };
   range.addEventListener("input", () => {
     if (options.enabledIf && !options.enabledIf()) return;
@@ -385,13 +379,12 @@ export function swatches<T>(host: FieldHost, parent: HTMLElement, options: Swatc
 }
 
 export interface DropdownOptions<T> extends FieldOptions {
-  /** `help` here explains that choice, shown under the field while it is picked. */
-  choices: Array<{ value: T; label: string; help?: string }>;
+  choices: Array<{ value: T; label: string }>;
   get: () => T;
   set: (value: T) => void;
 }
 
-/** A drop-down for choices too long for a segmented row, each with its own explanation. */
+/** A drop-down for choices too long for a segmented row. */
 export function dropdown<T>(host: FieldHost, parent: HTMLElement, options: DropdownOptions<T>): HTMLElement {
   const { root } = field(options);
   const menu = selectMenu(
@@ -405,27 +398,20 @@ export function dropdown<T>(host: FieldHost, parent: HTMLElement, options: Dropd
   );
   const select = menu.root;
   select.classList.add("fps-set-select");
-  const explain = el("div", "fps-set-field__help fps-set-select__help");
   host.addRefresh(() => {
     const current = options.get();
     const index = options.choices.findIndex((choice) => choice.value === current);
     menu.select(Math.max(0, index));
-    const help = options.choices[index]?.help ?? "";
-    explain.textContent = help;
-    explain.hidden = help === "";
   });
   root.insertBefore(select, root.children[1] ?? null);
-  root.append(explain);
   trackEnabled(host, root, options);
   parent.append(root);
   return root;
 }
 
-/** A dark card with a title, and an optional note beside it. */
-export function card(title: string, note?: string, extraClass = ""): HTMLElement {
+/** A dark card with a title. */
+export function card(title: string, extraClass = ""): HTMLElement {
   const root = el("section", `fps-set-card ${extraClass}`.trim());
-  const heading = el("h2", "fps-set-card__title", title);
-  if (note) heading.append(el("small", "", note));
-  root.append(heading);
+  root.append(el("h2", "fps-set-card__title", title));
   return root;
 }

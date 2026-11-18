@@ -70,8 +70,9 @@ the repository split; the checkout commands above remain applicable until cutove
 
 Run `npm --prefix src/games/fps run lobby:server` in another terminal for a local lobby. Open
 `http://localhost:3000`, choose **Play**, a mode and Public or Private, then enter
-a room and ready up. **Add bot** in a room seats a bot; the lobby runs bots
-itself, so nothing else needs starting. A room with a bot is private.
+a room and ready up. **Add AI player** in a room seats a bot; the lobby runs bots
+itself, so nothing else needs starting. A public room nobody else joins
+invites a bot by itself after 90 seconds.
 See [Your First Match](../player/first-match.md).
 
 For the developer flow with a one-keystroke server-backed map launch:

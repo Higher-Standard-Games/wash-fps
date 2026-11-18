@@ -15,7 +15,6 @@ import matchMenuCss from "../../styles/MatchMenu.css?raw";
 export interface MatchMenuModeKey {
   id: string;
   label: string;
-  hint: string;
   onClick: () => void;
 }
 
@@ -65,7 +64,7 @@ export class FPSPauseMenu extends GameDialogPanel {
       element("p", "fps-match-menu__note", "The match keeps going while you're here."),
     );
 
-    this.resumeKey = this.key("Resume", "Back to the fight", () => {
+    this.resumeKey = this.key("Resume", () => {
       this.close();
       this.onResumeCallback?.();
     });
@@ -73,8 +72,8 @@ export class FPSPauseMenu extends GameDialogPanel {
     this.joinKeys.hidden = true;
     this.modeKeys = element("div", "fps-match-menu__mode");
     this.modeKeys.hidden = true;
-    const settingsKey = this.key("Settings", "Controls and video", () => this.onSettingsCallback?.());
-    this.spectateKey = this.key("Spectate", "Watch the match", () => {
+    const settingsKey = this.key("Settings", () => this.onSettingsCallback?.());
+    this.spectateKey = this.key("Spectate", () => {
       this.close();
       this.onSpectateCallback?.();
     });
@@ -96,7 +95,6 @@ export class FPSPauseMenu extends GameDialogPanel {
     }
     const leave = createRaisedKey({
       label: returningToEditor ? "Return to Editor" : "Leave match",
-      hint: returningToEditor ? "Resume your map" : "Back to the lobby",
       variants: ["sm", "cream"],
     });
     leave.addEventListener("click", () => {
@@ -176,7 +174,7 @@ export class FPSPauseMenu extends GameDialogPanel {
   public setModeKeys(keys: readonly MatchMenuModeKey[]): void {
     this.modeKeys.replaceChildren(
       ...keys.map((modeKey) => {
-        const key = this.key(modeKey.label, modeKey.hint, () => {
+        const key = this.key(modeKey.label, () => {
           this.close();
           modeKey.onClick();
         });
@@ -187,8 +185,8 @@ export class FPSPauseMenu extends GameDialogPanel {
     this.modeKeys.hidden = keys.length === 0;
   }
 
-  private key(label: string, hint: string, onClick: () => void): HTMLButtonElement {
-    const key = createRaisedKey({ label, hint, variants: ["nav"] });
+  private key(label: string, onClick: () => void): HTMLButtonElement {
+    const key = createRaisedKey({ label, variants: ["nav"] });
     key.addEventListener("click", onClick);
     return key;
   }
@@ -212,9 +210,9 @@ export class FPSPauseMenu extends GameDialogPanel {
     return { udon, soba };
   }
 
-  private static describeSide(count: number): string {
-    if (count === 0) return "Empty";
-    return count === 1 ? "1 player" : `${count} players`;
+  /** "Join Udon · 2": the side's size is what bears on the choice. */
+  private static joinLabel(name: string, count: number): string {
+    return `Join ${name} · ${count}`;
   }
 
   private refreshJoinKeys(): void {
@@ -223,7 +221,7 @@ export class FPSPauseMenu extends GameDialogPanel {
     // read as a team game and every player landed in the spectator list.
     if (!MatchStateManager.getInstance().teamBased) {
       this.joinKeys.replaceChildren(
-        this.key("Join game", "Enter the arena", () => {
+        this.key("Join game", () => {
           this.close();
           this.onJoinGameCallback?.();
         }),
@@ -236,7 +234,7 @@ export class FPSPauseMenu extends GameDialogPanel {
     // on the choice, since picking the bigger side gets you moved to the smaller.
     const sizes = this.teamSizes();
     const side = (teamId: "udon" | "soba", name: string, count: number) =>
-      this.key(`Join ${name}`, FPSPauseMenu.describeSide(count), () => {
+      this.key(FPSPauseMenu.joinLabel(name, count), () => {
         this.close();
         this.onJoinGameCallback?.(teamId);
       });

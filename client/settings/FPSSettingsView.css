@@ -234,17 +234,11 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 6px 12px;
-  margin: 0 0 14px;
-  font: 900 15px / 1 var(--display);
+  margin: 0 0 16px;
+  font: 900 18px / 1 var(--display);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--cream);
-}
-
-.fps-set-card__title small {
-  font: 700 12px / 1 var(--body);
-  letter-spacing: 0.14em;
-  color: hsla(45, 100%, 95%, 0.45);
 }
 
 .fps-set-stack {
@@ -324,7 +318,7 @@
 }
 
 .fps-set-cap__legend {
-  font: 800 clamp(10px, 0.72vw, 13px) / 1 var(--display);
+  font: 800 clamp(12px, 0.86vw, 15px) / 1 var(--display);
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -332,7 +326,7 @@
 .fps-set-cap__act {
   align-self: stretch;
   overflow: hidden;
-  font: 700 clamp(9px, 0.62vw, 11px) / 1 var(--body);
+  font: 700 clamp(11px, 0.76vw, 13px) / 1 var(--body);
   letter-spacing: 0.02em;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -575,14 +569,14 @@
 }
 
 .fps-set-mlabel__slot {
-  font: 700 11px / 1 var(--body);
+  font: 700 14px / 1 var(--body);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: hsla(45, 100%, 95%, 0.5);
 }
 
 .fps-set-mlabel__act {
-  font: 700 16px / 1.1 var(--body);
+  font: 700 20px / 1.1 var(--body);
   letter-spacing: 0.04em;
   color: var(--cream);
 }
@@ -594,9 +588,10 @@
 
 /* ── Actions: what you want to do, and the keys that do it ── */
 
+/* Four groups across when there is room; on a narrower card they wrap rather than squeeze the keys */
 .fps-set-acts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 18px 26px;
 }
 
@@ -642,7 +637,7 @@
   box-shadow: inset 0 0 0 2px var(--cream);
 }
 
-/* A long name puts its Fixed badge on a second line rather than over the keys */
+/* A long name wraps rather than running over the keys */
 .fps-set-act__name {
   display: flex;
   flex: 0 0 auto;
@@ -673,13 +668,13 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 26px;
-  height: 24px;
-  padding: 0 7px;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 8px;
   border-radius: 3px;
   background: var(--c);
   color: var(--ink);
-  font: 800 11px / 1 var(--display);
+  font: 800 14px / 1 var(--display);
   letter-spacing: 0.02em;
   white-space: nowrap;
   box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 45%, hsl(250 50% 6%));
@@ -729,16 +724,6 @@
 
 .fps-set-act.is-fixed:hover {
   background: hsla(0, 0%, 100%, 0.04);
-}
-
-.fps-set-act__fixed {
-  padding: 2px 6px;
-  border-radius: 2px;
-  font: 700 10px / 1 var(--body);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.5);
-  box-shadow: inset 0 0 0 1px hsla(45, 100%, 95%, 0.22);
 }
 
 /* Waiting for the key: the row pulses until something is pressed */
@@ -1047,10 +1032,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 9px;
-  font: 700 15px / 1.1 var(--body);
-  letter-spacing: 0.14em;
+  font: 800 15px / 1.1 var(--display);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.82);
+  color: var(--cream);
 }
 
 /* When a setting takes hold, if not at once */
@@ -1093,23 +1078,10 @@
   filter: brightness(1.1);
 }
 
-.fps-set-field__help {
-  font: 600 13px / 1.25 var(--body);
-  color: hsla(45, 100%, 95%, 0.45);
-}
-
 .fps-set-field__val {
   font: 900 20px / 1 var(--display);
   font-variant-numeric: tabular-nums;
   color: var(--cream);
-}
-
-.fps-set-field__val.is-default::after {
-  content: " · default";
-  font: 700 11px / 1 var(--body);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.38);
 }
 
 /* Frame-rate cost: one to three pips */
@@ -1612,12 +1584,6 @@
   text-transform: uppercase;
 }
 
-.fps-set-preset__line {
-  font: 700 15px / 1.25 var(--body);
-  letter-spacing: 0.04em;
-  color: var(--key-sub);
-}
-
 .fps-set-preset__meter {
   display: flex;
   gap: 4px;
@@ -1679,24 +1645,6 @@
 
 .fps-set-preset-status b {
   color: var(--gold-text);
-}
-
-.fps-set-cost-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-  font: 700 12px / 1 var(--body);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.5);
-}
-
-.fps-set-cost-legend > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: hsla(45, 100%, 95%, 0.75);
 }
 
 /* Sections: a row of keys, closed by default. Each says how heavy it is set. */
@@ -1761,8 +1709,8 @@
 }
 
 .fps-set-sect__load .fps-set-cost i {
-  width: 18px;
-  height: 9px;
+  width: 24px;
+  height: 12px;
 }
 
 .raised-key--sect.is-open,
@@ -1854,10 +1802,6 @@
 /* The big number already says the volume */
 .fps-set-vol .fps-set-field__val {
   font-size: 0;
-}
-
-.fps-set-vol .fps-set-field__val.is-default::after {
-  font-size: 11px;
 }
 
 /* ═══ SIZES ═══ */

@@ -21,7 +21,6 @@ import {
   BOOST_CHOICES,
   CROSSHAIR_COLORS,
   currentChoice,
-  cvarDefault,
   HIT_COLORS,
   OUTLINE_CHOICES,
   setSideColor,
@@ -76,7 +75,7 @@ export class GameplayPage {
   }
 
   private buildTeams(): HTMLElement {
-    const root = card("Who's who", "Your side, and everyone you can shoot", "fps-set-card--wide");
+    const root = card("Who's who", "fps-set-card--wide");
     const teams = el("div", "fps-set-team-grid");
     const slots: HTMLElement[] = [];
     const colorChoices = TEAM_COLORS.map((color) => ({ value: color, label: color.label, css: color.css }));
@@ -168,7 +167,6 @@ export class GameplayPage {
     });
     seg(this.host, fields, {
       name: "Brighter players",
-      help: "Makes players stand out in dark corners",
       choices: BOOST_CHOICES.map((choice) => ({ value: choice, label: choice.label })),
       get: () => currentChoice(BOOST_CHOICES),
       set: (choice) => applyChoice(choice),
@@ -198,7 +196,7 @@ export class GameplayPage {
   }
 
   private buildCrosshair(): HTMLElement {
-    const root = card("Crosshair", undefined, "fps-set-card--wide");
+    const root = card("Crosshair", "fps-set-card--wide");
     const split = el("div", "fps-set-split fps-set-split--x");
     const preview = scene("washoi_dm2");
     const reticle = svgEl("svg", { class: "fps-set-xhair", width: 96, height: 96, viewBox: "-48 -48 96 96" });
@@ -223,7 +221,6 @@ export class GameplayPage {
     });
     seg(this.host, fields, {
       name: "Opens up when moving",
-      help: "Tightens again while you aim",
       choices: onOff,
       get: () => (Cvar.getNumber("cg_crosshairSpread") > 0 ? 1 : 0),
       set: (value) => {
@@ -238,7 +235,6 @@ export class GameplayPage {
       enabledIf: on,
       get: () => Cvar.getNumber("cg_crosshairSize"),
       set: (value) => Cvar.set("cg_crosshairSize", value),
-      initial: () => Number(cvarDefault("cg_crosshairSize")),
     });
     slider(this.host, fields, {
       name: "Opacity",
@@ -249,7 +245,6 @@ export class GameplayPage {
       enabledIf: on,
       get: () => Cvar.getNumber("cg_crosshairAlpha"),
       set: (value) => Cvar.set("cg_crosshairAlpha", value),
-      initial: () => Number(cvarDefault("cg_crosshairAlpha")),
     });
     const hex = (name: string) => Cvar.getString(name).trim().toUpperCase();
     swatches(this.host, fields, {
@@ -261,7 +256,6 @@ export class GameplayPage {
     });
     const hit = swatches(this.host, fields, {
       name: "When you hit",
-      help: "Pick one to see it flash",
       enabledIf: on,
       choices: HIT_COLORS.map((color) => ({ value: color.value, label: color.label, css: `#${color.value}` })),
       get: () => HIT_COLORS.find((color) => color.value === hex("cg_crosshairDmgColor"))?.value ?? null,
@@ -304,20 +298,18 @@ export class GameplayPage {
   }
 
   private buildView(): HTMLElement {
-    const root = card("View & info", undefined, "fps-set-card--wide");
+    const root = card("View & info", "fps-set-card--wide");
     const fields = el("div", "fps-set-field-grid");
     root.append(fields);
 
     const fov = slider(this.host, fields, {
       name: "Field of view",
-      help: "How wide you see. Wider shows more, but things look smaller",
       min: 80,
       max: 110,
       step: 1,
       format: (value) => `${value}°`,
       get: () => Cvar.getNumber("cl_fov"),
       set: (value) => Cvar.set("cl_fov", value),
-      initial: () => Number(cvarDefault("cl_fov")),
     });
     const wedgeBox = el("div", "fps-set-fov");
     const wedgeSvg = svgEl("svg", { viewBox: "-100 -8 200 100", preserveAspectRatio: "xMidYMax meet" });
@@ -336,7 +328,6 @@ export class GameplayPage {
 
     seg(this.host, fields, {
       name: "Gun size",
-      help: "How large your own gun is on screen. Smaller shows more of the view around it",
       choices: [
         { value: 0, label: "Normal" },
         { value: 1, label: "Small" },
@@ -348,24 +339,15 @@ export class GameplayPage {
       },
     });
 
-    for (const [cvar, name, help] of [
-      [
-        "cg_screenshake",
-        "Explosion shake",
-        "The view shakes when a rocket, grenade, plasma or blade blast goes off near you",
-      ],
-      ["cg_hitshake", "Shake when hit", "The view shakes when you take damage"],
-      ["show_fps", "FPS counter", "Frames per second in the top-right corner"],
-      ["cl_showspeed", "Movement speed", "Your speed at the bottom of the screen"],
-      [
-        "cl_hints",
-        "Hints",
-        "Tips about movement, weapons and items, above your weapons. Shown in warmup and for the first 2 minutes of a match",
-      ],
+    for (const [cvar, name] of [
+      ["cg_screenshake", "Explosion shake"],
+      ["cg_hitshake", "Shake when hit"],
+      ["show_fps", "FPS counter"],
+      ["cl_showspeed", "Movement speed"],
+      ["cl_hints", "Hints"],
     ]) {
       seg(this.host, fields, {
         name,
-        help,
         choices: [
           { value: 0, label: "Off" },
           { value: 1, label: "On" },
@@ -379,7 +361,6 @@ export class GameplayPage {
 
     seg(this.host, fields, {
       name: "Match clock",
-      help: "Count the match time down to the end, or up from the start",
       choices: [
         { value: 0, label: "Time left" },
         { value: 1, label: "Time played" },
@@ -392,7 +373,6 @@ export class GameplayPage {
 
     seg(this.host, fields, {
       name: "Switch to picked-up weapons",
-      help: "Take out a weapon you walk over. Off keeps what you hold, so a blade fight stays a blade fight",
       choices: [
         { value: 0, label: "Off" },
         { value: 1, label: "On" },
@@ -405,7 +385,6 @@ export class GameplayPage {
 
     seg(this.host, fields, {
       name: "Connection info",
-      help: "Ping and packet loss in a corner of the screen",
       choices: [
         { value: 0, label: "Off" },
         { value: 1, label: "Numbers" },

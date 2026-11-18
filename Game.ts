@@ -38,7 +38,7 @@ import { getExplosionEffect } from "../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
-import { describeLoadout, type LoadoutChoice, parseLoadout } from "../../shared/server/gametype/Loadout";
+import { type LoadoutChoice, parseLoadout } from "../../shared/server/gametype/Loadout";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../shared/server/simulation/physics/constants";
 import { clientKeyDisplayId, ensureClientKey } from "./ClientEntityKey";
 import { V2NetworkClient } from "./client";
@@ -1079,7 +1079,7 @@ export class Game {
     const needsLoadout = match.requiresLoadoutSelection && !this._loadoutChosen;
     if (needsLoadout && this.playerState !== "playing" && !this._joinPending) {
       const { FPSLoadoutPicker } = await import("./client/hud/widgets/LoadoutPicker");
-      this._loadoutPicker ??= new FPSLoadoutPicker(match.gametypeName);
+      this._loadoutPicker ??= new FPSLoadoutPicker();
       if (this._loadoutPicker.isOpen) return;
 
       // Released so the player can actually click; completeJoinGame takes it
@@ -1264,12 +1264,10 @@ export class Game {
   matchMenuModeKeys(): MatchMenuModeKey[] {
     const match = MatchStateManager.getInstance();
     if (!this.isNetworkMode || !match.loadoutMode) return [];
-    const kit = this.rememberedLoadout();
     return [
       {
         id: "loadout",
         label: "Loadout",
-        hint: kit ? describeLoadout(kit) : "Choose your kit",
         onClick: () => void this.openLoadoutFromMenu(),
       },
     ];
@@ -1283,7 +1281,7 @@ export class Game {
   private async openLoadoutFromMenu(): Promise<void> {
     const match = MatchStateManager.getInstance();
     const { FPSLoadoutPicker } = await import("./client/hud/widgets/LoadoutPicker");
-    this._loadoutPicker ??= new FPSLoadoutPicker(match.gametypeName);
+    this._loadoutPicker ??= new FPSLoadoutPicker();
     if (this._loadoutPicker.isOpen) return;
     this._loadoutPicker.open(
       (choice) => {

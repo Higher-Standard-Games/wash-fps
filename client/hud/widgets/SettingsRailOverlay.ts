@@ -35,7 +35,7 @@ export class SettingsRailOverlay extends GameDialogPanel {
     head.append(buildRailBrand("fps-match-menu__logo"), this.kickerEl);
 
     const foot = element("div", "fps-match-menu__foot");
-    const back = createRaisedKey({ label: "Back", hint: "To the match menu", variants: ["sm", "cream"] });
+    const back = createRaisedKey({ label: "Back", variants: ["sm", "cream"] });
     back.addEventListener("click", () => this.close());
     foot.append(back);
 

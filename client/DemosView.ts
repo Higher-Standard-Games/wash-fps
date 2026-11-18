@@ -1,6 +1,6 @@
 /**
- * Demos: this week's featured matches, the latest recordings, and yours, with
- * the maps in the rail. Everything shown is in the recording's header — map,
+ * Demos: featured matches (this week's, else the newest), the latest
+ * recordings, and yours. Everything shown is in the recording's header — map,
  * mode, who played, how long, when, how big. A header has no score, team or
  * rank, so a card has none either.
  */
@@ -41,10 +41,10 @@ const ALL: RankedMode = {
 };
 const ACCENT_PROPERTIES = ["--accent", "--accent-hi", "--accent-lo", "--accent-side-hi", "--accent-side-lo"];
 
-const TABS: Array<{ id: Tab; name: string; sub: string }> = [
-  { id: "featured", name: "Featured", sub: "This week's best" },
-  { id: "latest", name: "Latest", sub: "Every recorded match" },
-  { id: "yours", name: "Yours", sub: "Matches you played" },
+const TABS: Array<{ id: Tab; name: string }> = [
+  { id: "featured", name: "Featured" },
+  { id: "latest", name: "Latest" },
+  { id: "yours", name: "Yours" },
 ];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text?: string): HTMLElementTagNameMap[K] {
@@ -111,12 +111,10 @@ export interface DemosHost {
 export class DemosView {
   readonly root: HTMLElement;
   /** The maps, with how many recordings each: the rail's middle on this page. */
-  readonly railMiddle: HTMLElement;
 
   private readonly modes: RankedMode[];
   private tab: Tab = "featured";
   private mode: RankedMode = ALL;
-  private map: string | null = null;
   private query = "";
   private page = 1;
 
@@ -134,7 +132,6 @@ export class DemosView {
   private featuredError = "";
   private featuredSeq = 0;
   private heroFile: string | null = null;
-  private reelMinutes = 2;
   private readonly preloaded = new Set<string>();
   private playGeneration = 0;
   private pendingPlay: { controller: AbortController; restore: () => void } | null = null;
@@ -144,7 +141,6 @@ export class DemosView {
   private readonly transferAction = createRaisedKey({ label: "Cancel", variants: ["sm", "cream", "inline"] });
 
   private readonly title: HTMLElement;
-  private readonly rule: HTMLElement;
   private readonly modeKeys = new Map<string, HTMLButtonElement>();
   private readonly tabKeys = new Map<Tab, HTMLButtonElement>();
   private readonly featuredPane: HTMLElement;
@@ -153,19 +149,24 @@ export class DemosView {
   private readonly pickCount: HTMLElement;
   private readonly gridPane: HTMLElement;
   private readonly search: HTMLInputElement;
-  private readonly count: HTMLElement;
   private readonly grid: HTMLElement;
   private readonly pager: HTMLElement;
-  private readonly mapCount: HTMLElement;
-  private readonly mapList: HTMLElement;
   private readonly reel: HTMLElement;
   private reelDemo: { demo: DemoInfo; card: HTMLElement; key: HTMLButtonElement } | null = null;
+  private highlightMenu: { menu: HTMLElement; arrow: HTMLButtonElement } | null = null;
   private readonly onDocumentDown = (event: MouseEvent) => {
     if (document.querySelector("dialog[data-video-export][open]")) return;
-    if (this.reelDemo && !(event.target as Element | null)?.closest?.(".dm-reel")) this.closeReel();
+    const target = event.target as Element | null;
+    if (this.highlightMenu && !target?.closest?.(".dm-hl-menu, .dm-hl__arrow")) this.closeHighlightMenu();
+    if (this.reelDemo && !target?.closest?.(".dm-reel")) this.closeReel();
   };
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (document.querySelector("dialog[data-video-export][open]")) return;
+    if (event.key === "Escape" && this.highlightMenu) {
+      event.stopPropagation();
+      this.closeHighlightMenu(true);
+      return;
+    }
     if (event.key === "Escape" && this.reelDemo) {
       event.stopPropagation();
       this.closeReel(true);
@@ -204,21 +205,20 @@ export class DemosView {
     for (const tab of TABS) {
       const key = createRaisedKey({
         variants: ["tab"],
-        content: [el("span", "lobby__board-name", tab.name), el("span", "lobby__board-sub", tab.sub)],
+        content: [el("span", "lobby__board-name", tab.name)],
       });
       key.addEventListener("click", () => this.setTab(tab.id));
       tabs.append(key);
       this.tabKeys.set(tab.id, key);
     }
-    this.rule = el("div", "lobby__rule");
 
     this.featuredPane = el("section", "dm-pane");
     const featured = el("div", "dm-featured");
     this.hero = el("article", "dm-slab dm-hero");
     const picksBox = el("aside", "dm-picks");
-    const picksHead = el("div", "dm-picks__label");
-    this.pickCount = el("span");
-    picksHead.append(el("span", "", "This week's best"), this.pickCount);
+    // How many picks, on the campaign's gold plate
+    this.pickCount = el("p", "dm-picks__label campaign-plate");
+    const picksHead = this.pickCount;
     this.picks = el("div", "dm-picks__list");
     this.picks.setAttribute("role", "group");
     this.picks.setAttribute("aria-label", "Featured recordings");
@@ -240,9 +240,7 @@ export class DemosView {
       this.page = 1;
       this.renderGrid();
     });
-    this.count = el("div", "dm-count");
-    this.count.setAttribute("aria-live", "polite");
-    toolbar.append(this.search, this.count);
+    toolbar.append(this.search);
     this.grid = el("div", "dm-grid");
     this.pager = el("nav", "dm-pager");
     this.pager.setAttribute("aria-label", "Pages");
@@ -252,15 +250,7 @@ export class DemosView {
     this.transferText.setAttribute("role", "status");
     this.transferText.setAttribute("aria-live", "polite");
     this.transfer.append(this.transferText, this.transferAction);
-    this.root.append(host.light, ghost, head, tabs, this.rule, this.transfer, this.featuredPane, this.gridPane);
-
-    this.railMiddle = el("section", "lobby__rail-mid dm-rail");
-    this.railMiddle.setAttribute("aria-label", "Maps");
-    const railHead = el("div", "lobby__rail-label");
-    this.mapCount = el("span");
-    railHead.append(el("span", "", "Maps"), this.mapCount);
-    this.mapList = el("div", "dm-rail__maps");
-    this.railMiddle.append(railHead, this.mapList);
+    this.root.append(host.light, ghost, head, tabs, this.transfer, this.featuredPane, this.gridPane);
 
     this.reel = el("div", "dm-reel");
     this.reel.hidden = true;
@@ -414,7 +404,7 @@ export class DemosView {
     this.render();
     const result = await newUiApi.getFeaturedDemos({
       gametype: this.mode.id,
-      map: this.map ?? "all",
+      map: "all",
       limit: FEATURED_LIMIT,
     });
     if (seq !== this.featuredSeq) return;
@@ -446,17 +436,9 @@ export class DemosView {
     ACCENT_PROPERTIES.forEach((property, index) => {
       this.root.style.setProperty(property, mode.accent[index]);
     });
-    if (this.map && !this.inMode().some((demo) => demo.map === this.map)) this.map = null;
     this.page = 1;
     this.heroFile = null;
     this.refetchFeatured(fetch);
-  }
-
-  private setMap(map: string | null): void {
-    this.map = map;
-    this.page = 1;
-    this.heroFile = null;
-    this.refetchFeatured(true);
   }
 
   private refetchFeatured(fetch: boolean): void {
@@ -483,7 +465,6 @@ export class DemosView {
   private shownList(): DemoInfo[] {
     const query = this.query.trim().toLocaleLowerCase();
     return this.inMode()
-      .filter((demo) => !this.map || demo.map === this.map)
       .filter(
         (demo) =>
           !query || `${demo.map} ${mapName(demo)} ${demo.players.join(" ")}`.toLocaleLowerCase().includes(query),
@@ -508,35 +489,26 @@ export class DemosView {
         key.title = this.ownership ? "" : "This lobby server cannot prove which recordings are yours.";
       }
     }
-    this.rule.textContent = this.ruleText();
     this.featuredPane.hidden = this.tab !== "featured";
     this.gridPane.hidden = this.tab === "featured";
     if (this.tab === "featured") this.renderFeatured();
     else this.renderGrid();
-    this.renderMaps();
-  }
-
-  private ruleText(): string {
-    if (this.tab === "latest") return `Newest first · the latest ${DEMO_LIST_LIMIT} recordings`;
-    if (this.tab === "yours") return "Matches you played on a verified seat, newest first";
-    if (this.featuredState !== "ready" || this.featured.length === 0) return "Recordings from the last 7 days";
-    return this.featured.some((entry) => entry.reason.includes("top 10"))
-      ? "This week's matches with players from the 30-day top 10"
-      : "No top-10 matches this week · the latest multiplayer matches instead";
   }
 
   private renderFeatured(): void {
     let empty = "";
-    if (!this.host.client.connected) empty = "Connect to the lobby to see this week's picks.";
+    if (!this.host.client.connected) empty = "Connect to the lobby to see the picks.";
     else if (newUiApi.getFeatureStatus("featuredDemos").status !== "ready")
       empty = "Featured picks are unavailable on this lobby server. Latest has every match.";
     else if (this.featuredState === "failed") empty = this.featuredError;
-    else if (this.featuredState !== "ready") empty = "Loading this week's picks…";
+    else if (this.featuredState !== "ready") empty = "Loading the picks…";
     else if (this.featured.length === 0) {
-      const where = this.map ? " on this map" : this.mode.id !== "all" ? ` in ${this.mode.title}` : "";
-      empty = `No multiplayer matches${where} this week yet. Latest has every match.`;
+      const where = this.mode.id !== "all" ? ` in ${this.mode.title}` : "";
+      empty = `No multiplayer matches${where} recorded yet.`;
     }
-    this.pickCount.textContent = this.featured.length ? `${this.featured.length} picks` : "";
+    const picks = this.featured.length;
+    this.pickCount.replaceChildren(el("strong", "", String(picks)), picks === 1 ? " pick" : " picks");
+    this.pickCount.hidden = picks === 0;
     if (empty) {
       this.paint(this.hero, null);
       const face = el("div", "dm-slab__face");
@@ -554,52 +526,25 @@ export class DemosView {
     const face = el("div", "dm-slab__face");
     const shot = el("div", "dm-shot");
     shot.append(el("div", "dm-shot__img"), this.flags(demo, [el("span", "dm-flag", "★ Featured")]));
-    shot.append(el("span", "dm-shot__len", clock(demo.durationMs)), this.bigMatchup(demo));
+    shot.append(this.bigMatchup(demo));
 
     const foot = el("div", "dm-hero__foot");
     const watch = this.playKey(createRaisedKey({ label: "▶ Watch", variants: ["watch"] }));
     watch.addEventListener("click", () => void this.play(demo, this.hero, watch));
-    const reel = el("div", "dm-hero__reel");
-    const allowed = reelLengths(demo.durationMs);
-    // The chosen length, or this demo's longest when it is too short for that
-    let chosen: number | undefined = allowed.some((minutes) => minutes === this.reelMinutes)
-      ? this.reelMinutes
-      : allowed[allowed.length - 1];
-    const highlights = this.reelKey(createRaisedKey({ label: "⚡ Highlights", variants: ["cream"] }), allowed);
-    highlights.addEventListener("click", () => {
-      if (chosen !== undefined) void this.playReel(demo, this.hero, highlights, chosen);
-    });
-    const lengths = el("div", "dm-lens");
-    lengths.setAttribute("role", "group");
-    lengths.setAttribute("aria-label", "Highlight reel length");
-    // Every length keeps its place; one the demo is too short for is disabled
-    for (const minutes of REEL_MINUTES) {
-      const key = el("button", minutes === chosen ? "is-on" : "", `${minutes} min`);
-      key.type = "button";
-      key.disabled = !allowed.includes(minutes);
-      if (key.disabled) key.title = TOO_SHORT;
-      key.setAttribute("aria-pressed", String(minutes === chosen));
-      key.addEventListener("click", () => {
-        this.reelMinutes = minutes;
-        chosen = minutes;
-        for (const other of lengths.children) {
-          other.classList.toggle("is-on", other === key);
-          other.setAttribute("aria-pressed", String(other === key));
-        }
-      });
-      lengths.append(key);
-    }
-    reel.append(highlights, lengths);
+    const highlights = this.reelKey(
+      createRaisedKey({ label: "⚡ Highlights", variants: ["cream"] }),
+      reelLengths(demo.durationMs),
+    );
+    highlights.setAttribute("aria-haspopup", "dialog");
+    highlights.addEventListener("click", () => this.openReel(demo, this.hero, highlights));
+    const reel = this.highlightsSplit(demo, highlights, ["cream"]);
     const where = el("div", "dm-hero__where");
     const when = new Date(demo.date).toLocaleString(undefined, {
       weekday: "short",
       hour: "2-digit",
       minute: "2-digit",
     });
-    where.append(
-      el("span", "dm-hero__ago", ago(demo.date, false)),
-      el("span", "dm-hero__when", `${when} · ${demo.sizeMB} MB`),
-    );
+    where.append(el("span", "dm-hero__ago", ago(demo.date, false)), el("span", "dm-hero__when", when));
     foot.append(watch, reel, where);
     face.append(shot, foot);
     this.hero.replaceChildren(this.slabSide(), face);
@@ -667,10 +612,6 @@ export class DemosView {
       });
       this.grid.appendChild(retry);
     }
-    this.count.replaceChildren(
-      el("b", "", String(list.length)),
-      `${list.length === 1 ? "demo" : "demos"}${pages > 1 ? ` · page ${this.page} of ${pages}` : ""}`,
-    );
     this.search.disabled = this.archive.length === 0;
 
     if (pages <= 1) {
@@ -703,46 +644,6 @@ export class DemosView {
     this.renderGrid();
   }
 
-  private renderMaps(): void {
-    const inMode = this.inMode();
-    const maps = [...new Map(inMode.map((demo) => [demo.map, demo])).values()].sort((a, b) =>
-      mapName(a).localeCompare(mapName(b)),
-    );
-    this.mapCount.textContent = maps.length ? `${maps.length} ${maps.length === 1 ? "map" : "maps"}` : "";
-    if (!this.host.client.connected || (!this.archiveArrived && maps.length === 0)) {
-      this.mapList.replaceChildren(
-        el(
-          "p",
-          "lobby__rail-empty",
-          this.host.client.connected
-            ? this.archiveFailed
-              ? "Archive unavailable. Use Try again."
-              : "Loading the archive…"
-            : "Lobby server offline.",
-        ),
-      );
-      return;
-    }
-    const row = (id: string | null, label: string, count: number, color: string) => {
-      const mark = el("span", "lobby__room-mark");
-      const name = el("span", "raised-key__label", label);
-      const number = el("span", "raised-key__hint lobby__room-count", String(count));
-      const key = createRaisedKey({ variants: ["sm", "cream", "room"], content: [mark, name, number] });
-      key.classList.add("dm-rail__map");
-      key.style.setProperty("--mode-mark", color);
-      key.setAttribute("aria-pressed", String(this.map === id));
-      key.setAttribute("aria-label", `${label}: ${count} ${count === 1 ? "recording" : "recordings"}`);
-      key.addEventListener("click", () => this.setMap(this.map === id ? null : id));
-      return key;
-    };
-    this.mapList.replaceChildren(
-      row(null, "All maps", inMode.length, this.mode.mark),
-      ...maps.map((demo) =>
-        row(demo.map, mapName(demo), inMode.filter((other) => other.map === demo.map).length, this.modeOf(demo).mark),
-      ),
-    );
-  }
-
   // ── Pieces ──
 
   private modeOf(demo: DemoInfo): RankedMode {
@@ -770,7 +671,14 @@ export class DemosView {
     const flags = el("div", "dm-shot__flags");
     const mode = this.modeOf(demo);
     const label = demo.players.length > 2 ? `${mode.title} · ${demo.players.length}` : mode.title;
-    flags.append(el("span", "dm-flag dm-flag--mode", label), ...extra, el("span", "dm-shot__map", mapName(demo)));
+    // Fixed-width tabs (Featured) first, so only the mode's tab varies in width; the
+    // map name takes what is left before the length, which keeps the far corner
+    flags.append(
+      ...extra,
+      el("span", "dm-flag dm-flag--mode", label),
+      el("span", "dm-shot__map", mapName(demo)),
+      el("span", "dm-shot__len", clock(demo.durationMs)),
+    );
     return flags;
   }
 
@@ -821,7 +729,7 @@ export class DemosView {
     card.style.setProperty("--i", String(index));
     const face = el("div", "dm-slab__face");
     const shot = el("div", "dm-shot");
-    shot.append(el("div", "dm-shot__img"), this.flags(demo), el("span", "dm-shot__len", clock(demo.durationMs)));
+    shot.append(el("div", "dm-shot__img"), this.flags(demo));
     shot.append(this.matchup(demo));
     const foot = el("div", "dm-card__foot");
     const watch = this.playKey(createRaisedKey({ label: "▶ Watch", variants: ["sm"] }));
@@ -835,11 +743,12 @@ export class DemosView {
     highlights.setAttribute("aria-label", "Highlights");
     highlights.setAttribute("aria-haspopup", "dialog");
     highlights.addEventListener("click", () => this.openReel(demo, card, highlights));
+    const reel = this.highlightsSplit(demo, highlights, ["sm", "cream"]);
     const where = el("div", "dm-card__where");
     const when = el("span", "dm-card__ago", ago(demo.date, true));
     when.title = new Date(demo.date).toLocaleString();
-    where.append(when, el("span", "dm-card__size", `${demo.sizeMB} MB`));
-    foot.append(watch, highlights, where);
+    where.append(when);
+    foot.append(watch, reel, where);
     face.append(shot, foot);
     card.append(this.slabSide(), face);
     return card;
@@ -945,7 +854,80 @@ export class DemosView {
   }
 
   /** The reel menu for a card: how long a cut of its best moments. */
+  /**
+   * Highlights and the arrow beside it, as Add AI player has: the arrow opens a
+   * menu above it whose one entry exports the reel as a video.
+   */
+  private highlightsSplit(demo: DemoInfo, highlights: HTMLButtonElement, variants: string[]): HTMLElement {
+    const split = el("div", "dm-hl");
+    highlights.classList.add("dm-hl__main");
+    const arrow = createRaisedKey({ label: "▴", variants });
+    arrow.classList.add("dm-hl__arrow");
+    arrow.setAttribute("aria-label", "More highlight options");
+    arrow.setAttribute("aria-haspopup", "menu");
+    arrow.setAttribute("aria-expanded", "false");
+    arrow.disabled = highlights.disabled;
+    if (arrow.disabled) arrow.title = TOO_SHORT;
+    arrow.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (this.highlightMenu?.arrow === arrow) this.closeHighlightMenu();
+      else this.openHighlightMenu(demo, arrow);
+    });
+    split.append(highlights, arrow);
+    return split;
+  }
+
+  private openHighlightMenu(demo: DemoInfo, arrow: HTMLButtonElement): void {
+    this.closeHighlightMenu();
+    this.closeReel();
+    const menu = el("div", "dm-hl-menu");
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Highlight options");
+    const exportVideo = el("button", "dm-hl-menu__item", "Export video");
+    exportVideo.type = "button";
+    exportVideo.setAttribute("role", "menuitem");
+    exportVideo.addEventListener("click", () => {
+      this.closeHighlightMenu();
+      this.exportReel(demo);
+    });
+    menu.append(exportVideo);
+    document.body.append(menu);
+    // Opens upwards from the arrow, its right edge on the arrow's
+    const rect = arrow.getBoundingClientRect();
+    menu.style.left = `${Math.max(12, rect.right - menu.offsetWidth)}px`;
+    menu.style.top = `${Math.max(12, rect.top - menu.offsetHeight - 10)}px`;
+    arrow.setAttribute("aria-expanded", "true");
+    this.highlightMenu = { menu, arrow };
+    exportVideo.focus();
+  }
+
+  private closeHighlightMenu(returnFocus = false): void {
+    if (!this.highlightMenu) return;
+    const { menu, arrow } = this.highlightMenu;
+    this.highlightMenu = null;
+    menu.remove();
+    arrow.setAttribute("aria-expanded", "false");
+    if (returnFocus) arrow.focus();
+  }
+
+  private exportReel(demo: DemoInfo): void {
+    const who =
+      demo.players.length === 2 ? `${demo.players[0]} vs ${demo.players[1]}` : `${demo.players.length} players`;
+    background(
+      import("./video/HighlightVideoExporter").then(({ openHighlightVideoExporter }) => {
+        openHighlightVideoExporter({
+          url: `${DemoService.demoBaseUrl()}/${encodeURIComponent(demo.filename)}`,
+          label: `${who} · ${mapName(demo)}`,
+          durationMs: demo.durationMs,
+          filename: demo.filename,
+        });
+      }),
+      "Opening highlight video export",
+    );
+  }
+
   private openReel(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement): void {
+    this.closeHighlightMenu();
     this.reelDemo = { demo, card, key };
     const sheet = el("div", "dm-reel__card");
     const head = el("div", "dm-reel__head");
@@ -954,8 +936,6 @@ export class DemosView {
     close.setAttribute("aria-label", "Close");
     close.addEventListener("click", () => this.closeReel(true));
     head.append(el("span", "dm-reel__q", "⚡ Highlight reel"), close);
-    const who =
-      demo.players.length === 2 ? `${demo.players[0]} vs ${demo.players[1]}` : `${demo.players.length} players`;
     const options = el("div", "dm-reel__opts");
     const allowed = reelLengths(demo.durationMs);
     for (const minutes of REEL_MINUTES) {
@@ -971,30 +951,7 @@ export class DemosView {
       });
       options.append(option);
     }
-    sheet.append(
-      head,
-      el("div", "dm-reel__sub", `${who} · ${mapName(demo)}`),
-      options,
-      el("div", "dm-reel__hint", "Kills, sprees and close calls, cut together"),
-    );
-    const exportVideo = el("button", "dm-reel__opt dm-reel__export");
-    exportVideo.append(el("b", "", "Export video"));
-    exportVideo.type = "button";
-    exportVideo.disabled = !allowed.length;
-    exportVideo.addEventListener("click", () => {
-      background(
-        import("./video/HighlightVideoExporter").then(({ openHighlightVideoExporter }) => {
-          openHighlightVideoExporter({
-            url: `${DemoService.demoBaseUrl()}/${encodeURIComponent(demo.filename)}`,
-            label: `${who} · ${mapName(demo)}`,
-            durationMs: demo.durationMs,
-            filename: demo.filename,
-          });
-        }),
-        "Opening highlight video export",
-      );
-    });
-    sheet.append(exportVideo);
+    sheet.append(head, options);
     this.reel.replaceChildren(sheet);
     this.reel.hidden = false;
     const rect = key.getBoundingClientRect();

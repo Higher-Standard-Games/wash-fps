@@ -74,6 +74,7 @@ export class LobbyDownloadIndicator {
     this.rendered = shown;
     this.summary.textContent = status.label;
     this.text.textContent = status.detail;
+    this.text.hidden = !status.detail;
     this.packages.replaceChildren(
       ...status.packages.map(({ filename, state }) => {
         const row = document.createElement("li");

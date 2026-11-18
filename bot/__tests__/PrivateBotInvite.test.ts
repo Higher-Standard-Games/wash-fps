@@ -87,7 +87,7 @@ describe("private room bot invite", () => {
     }
   }, 20_000);
 
-  it("makes a public room private when a bot is added", async () => {
+  it("keeps a public room public when a bot is added", async () => {
     const secret = "public-bot-integration-secret";
     const botServer = new BotServer(0, { secret });
     await botServer.start();
@@ -112,26 +112,23 @@ describe("private room bot invite", () => {
 
       host.send(JSON.stringify({ type: "auth" }));
       await waitFor("welcome");
-      host.send(JSON.stringify({ type: "lobby:create", gametype: "duel", visibility: "public" }));
+      host.send(JSON.stringify({ type: "lobby:create", gametype: "ffa", visibility: "public" }));
       const room = (await waitFor("lobby:created")).lobby as MatchLobbyInfo;
 
       expect(room.visibility).toBe("public");
       host.send(JSON.stringify({ type: "lobby:invite_bot", lobbyId: room.id }));
-      const madePrivate = await waitFor("lobby:made_private");
-      const inviteToken = new URL(madePrivate.shareUrl as string, "https://example.invalid").searchParams.get("invite");
-      expect(madePrivate.lobbyId).toBe(room.id);
-      expect(inviteToken).toMatch(/^[A-Za-z0-9_-]{32}$/);
-      // The bot joins with the new invite, and the room leaves the public list
+      // The bot joins without an invite, and the room stays on the public list
       expect((await waitFor("lobby:player_joined")).player).toMatchObject({ botLevel: "hard" });
       expect(await waitFor("lobby:bot_invited")).toMatchObject({ lobbyId: room.id });
       expect(botServer.getStatus()).toHaveLength(1);
+      expect(messages.some((message) => message.type === "lobby:made_private")).toBe(false);
       await vi.waitFor(() => {
         const updates = messages.filter((message) => message.type === "matches:update");
-        const latest = updates.at(-1)?.matches as Array<{ id: string }> | undefined;
-        expect(latest?.some((match) => match.id === room.id)).toBe(false);
+        const latest = updates.at(-1)?.matches as Array<{ id: string; playerCount: number }> | undefined;
+        expect(latest?.find((match) => match.id === room.id)?.playerCount).toBe(2);
       });
 
-      // Joining by the old public link no longer works; the invite does
+      // Anyone can still join by the room's public link
       const stranger = new WebSocket(`ws://127.0.0.1:${lobbyPort}`);
       const strangerMessages: Array<Record<string, unknown>> = [];
       stranger.on("message", (data) => strangerMessages.push(JSON.parse(data.toString())));
@@ -141,8 +138,8 @@ describe("private room bot invite", () => {
         await vi.waitFor(() => expect(strangerMessages.some((m) => m.type === "welcome")).toBe(true));
         stranger.send(JSON.stringify({ type: "lobby:join", lobbyId: room.id }));
         await vi.waitFor(() =>
-          expect(strangerMessages.find((m) => m.type === "lobby:error")).toMatchObject({
-            error: "That room is gone, or the invite link is wrong.",
+          expect(strangerMessages.find((m) => m.type === "lobby:created")).toMatchObject({
+            lobby: { id: room.id, visibility: "public" },
           }),
         );
       } finally {

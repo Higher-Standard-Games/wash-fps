@@ -15,9 +15,7 @@ import { button, costPips, dropdown, el, type FieldHost, formatPercent, seg, sli
 import {
   applyChoice,
   COLOR_BLIND_SIDE_COLORS,
-  COST_WORD,
   currentChoice,
-  cvarDefault,
   GODRAY_CHOICES,
   godrayChoice,
   loadLevel,
@@ -68,11 +66,7 @@ export class VideoPage {
       for (let i = 0; i < 3; i++) meter.append(el("i", i < preset.bars ? "on" : ""));
       const key = createRaisedKey({
         variants: ["preset"],
-        content: [
-          el("span", "fps-set-preset__name", preset.label),
-          el("span", "fps-set-preset__line", preset.line),
-          meter,
-        ],
+        content: [el("span", "fps-set-preset__name", preset.label), meter],
       });
       key.addEventListener("click", () => {
         applyChoice(preset);
@@ -85,13 +79,7 @@ export class VideoPage {
     const bar = el("div", "fps-set-video-bar");
     const status = el("div", "fps-set-preset-status");
     status.setAttribute("aria-live", "polite");
-    const legend = el("div", "fps-set-cost-legend", "Frame-rate cost");
-    for (const cost of ["low", "mid", "high"] as const) {
-      const item = el("span");
-      item.append(costPips(cost), COST_WORD[cost]);
-      legend.append(item);
-    }
-    bar.append(status, legend);
+    bar.append(status);
     host.addRefresh(() => {
       const now = currentChoice(VIDEO_PRESETS);
       status.replaceChildren("Using ", el("b", "", now ? now.label : "your own mix"));
@@ -112,7 +100,7 @@ export class VideoPage {
       key.addEventListener("click", () => this.showSection(this.openSection === section.id ? null : section.id));
       host.addRefresh(() => {
         const level = loadLevel(section.load());
-        load.replaceChildren(costPips(level), COST_WORD[level]);
+        load.replaceChildren(costPips(level));
       });
       sections.append(key);
       this.sectionKeys.set(section.id, key);
@@ -202,12 +190,10 @@ export class VideoPage {
         format: formatPercent,
         get: () => Cvar.getNumber(name),
         set: (value) => Cvar.set(name, value),
-        initial: () => Number(cvarDefault(name)),
       });
     }
     slider(this.host, parent, {
       name: "Render resolution",
-      help: "Below 100% the world draws at fewer pixels and looks softer; the HUD stays sharp",
       cost: "high",
       min: 0.25,
       max: 1,
@@ -215,11 +201,9 @@ export class VideoPage {
       format: formatPercent,
       get: () => Cvar.getNumber("r_renderscale"),
       set: (value) => Cvar.set("r_renderscale", value),
-      initial: () => Number(cvarDefault("r_renderscale")),
     });
     seg(this.host, parent, {
       name: "Antialiasing",
-      help: "Smooth edges on geometry",
       cost: "mid",
       tag: "Restart",
       choices: onOff,
@@ -233,18 +217,15 @@ export class VideoPage {
   private buildEffects(parent: HTMLElement): void {
     slider(this.host, parent, {
       name: "Bloom",
-      help: "Soft light around bright things",
       cost: "low",
       min: 0,
       max: 3,
       step: 0.1,
       get: () => Cvar.getNumber("r_bloom"),
       set: (value) => Cvar.set("r_bloom", value),
-      initial: () => Number(cvarDefault("r_bloom")),
     });
     seg(this.host, parent, {
       name: "Reflections",
-      help: "Shiny floors and metal",
       cost: "high",
       choices: onOff,
       get: () => flag("r_ssr"),
@@ -254,7 +235,6 @@ export class VideoPage {
     });
     seg(this.host, parent, {
       name: "Light shafts",
-      help: "Sunbeams, on maps that have a sun",
       cost: "mid",
       choices: GODRAY_CHOICES.map((choice) => ({ value: choice, label: choice.label })),
       get: () => godrayChoice(),
@@ -262,7 +242,6 @@ export class VideoPage {
     });
     seg(this.host, parent, {
       name: "Soft halos",
-      help: "Lamp halos fade into walls instead of ending in a line",
       cost: "low",
       choices: onOff,
       get: () => flag("r_softhalos"),
@@ -272,14 +251,12 @@ export class VideoPage {
     });
     slider(this.host, parent, {
       name: "Glow",
-      help: "Signs, strips and energy shine",
       cost: "mid",
       min: 0,
       max: 2,
       step: 0.05,
       get: () => Cvar.getNumber("r_glow"),
       set: (value) => Cvar.set("r_glow", value),
-      initial: () => Number(cvarDefault("r_glow")),
     });
     slider(this.host, parent, {
       name: "Reflection strength",
@@ -289,11 +266,9 @@ export class VideoPage {
       enabledIf: () => flag("r_ssr") === 1,
       get: () => Cvar.getNumber("r_ssr_strength"),
       set: (value) => Cvar.set("r_ssr_strength", value),
-      initial: () => Number(cvarDefault("r_ssr_strength")),
     });
     seg(this.host, parent, {
       name: "Comic outlines",
-      help: "Inked edges on the world",
       cost: "low",
       choices: onOff,
       shownIf: () => Cvar.exists("r_cel_outlines"),
@@ -304,7 +279,6 @@ export class VideoPage {
     });
     seg(this.host, parent, {
       name: "Dynamic lights",
-      help: "Light from shots, rockets, explosions and muzzle flashes",
       cost: "mid",
       tag: "Next map",
       choices: onOff,
@@ -313,14 +287,13 @@ export class VideoPage {
         Cvar.set("r_dynamiclight", value);
       },
     });
-    for (const [name, label, help] of [
-      ["r_gibs", "Gibs", "The shards a player breaks into"],
-      ["r_marks", "Wall marks", "Holes and scorches where shots hit"],
-      ["r_teleport_ghost", "Teleport afterimage", "The silhouette left where someone teleported from"],
+    for (const [name, label] of [
+      ["r_gibs", "Gibs"],
+      ["r_marks", "Wall marks"],
+      ["r_teleport_ghost", "Teleport afterimage"],
     ]) {
       seg(this.host, parent, {
         name: label,
-        help,
         cost: "low",
         choices: onOff,
         get: () => flag(name),
@@ -347,7 +320,6 @@ export class VideoPage {
     });
     seg(this.host, parent, {
       name: "Players in water",
-      help: "Reflections of nearby players. High water only",
       cost: "low",
       choices: onOff,
       enabledIf: () => Cvar.getNumber("r_water_quality") >= 3,
@@ -358,7 +330,6 @@ export class VideoPage {
     });
     seg(this.host, parent, {
       name: "Glowing panel light",
-      help: "Light cast from the map's glowing panels",
       cost: "mid",
       tag: "Next map",
       choices: onOff,
@@ -369,7 +340,6 @@ export class VideoPage {
     });
     seg(this.host, parent, {
       name: "Fog",
-      help: "The map's own haze and distance fog",
       cost: "low",
       choices: onOff,
       get: () => flag("r_fog"),
@@ -379,21 +349,18 @@ export class VideoPage {
     });
     slider(this.host, parent, {
       name: "Underwater wobble",
-      help: "How much the view warps under water",
       min: 0,
       max: 1,
       step: 0.05,
       format: formatPercent,
       get: () => Cvar.getNumber("r_underwater_distortion"),
       set: (value) => Cvar.set("r_underwater_distortion", value),
-      initial: () => Number(cvarDefault("r_underwater_distortion")),
     });
   }
 
   private buildAdvanced(parent: HTMLElement): void {
     seg(this.host, parent, {
       name: "Renderer",
-      help: "WebGPU draws faster. Where the browser or graphics card has none, the game uses WebGL2 on its own",
       tag: "Restart",
       choices: [
         { value: 1, label: "WebGPU" },
@@ -406,7 +373,6 @@ export class VideoPage {
     });
     seg(this.host, parent, {
       name: "Map texture detail",
-      help: "Softer or flat-color walls and floors. Lighting and transparent effects stay intact.",
       tag: "Next map",
       choices: [
         { value: 0, label: "Full" },
@@ -426,25 +392,21 @@ export class VideoPage {
   private buildColorCorrection(parent: HTMLElement): void {
     dropdown(this.host, parent, {
       name: "Color blindness",
-      help: "Not sure which? Try each and keep the one where colors are easiest to tell apart.",
       cost: "low",
       shownIf: () => Cvar.exists("r_colorcorrection"),
       choices: [
-        { value: 0, label: "Off", help: "Colors as the maps were made." },
+        { value: 0, label: "Off" },
         {
           value: 1,
           label: "Red-weak (protanopia)",
-          help: "Reds look dark and close to greens. Their difference moves into blue and brightness.",
         },
         {
           value: 2,
           label: "Green-weak (deuteranopia)",
-          help: "The most common kind: reds and greens look alike. Their difference moves into blue and brightness.",
         },
         {
           value: 3,
           label: "Blue-yellow (tritanopia)",
-          help: "Blues look like greens, yellows like pinks. Their difference moves into red and green.",
         },
       ],
       get: () => Cvar.getInt("r_colorcorrection"),
@@ -488,14 +450,12 @@ export class VideoPage {
       enabledIf: () => Cvar.getInt("r_colorcorrection") > 0,
       get: () => Cvar.getNumber("r_colorcorrection_strength"),
       set: (value) => Cvar.set("r_colorcorrection_strength", value),
-      initial: () => Number(cvarDefault("r_colorcorrection_strength")),
     });
   }
 
   private buildTextures(parent: HTMLElement): void {
     seg(this.host, parent, {
       name: "Sharpness",
-      help: "Keeps floors crisp at an angle",
       cost: "low",
       choices: [1, 2, 4, 8, 16].map((value) => ({ value, label: `${value}×` })),
       get: () => Cvar.getNumber("r_anisotropy"),
@@ -505,7 +465,6 @@ export class VideoPage {
     });
     seg(this.host, parent, {
       name: "Detailed surfaces",
-      help: "Richer metal, stone and wear on map surfaces",
       cost: "mid",
       tag: "Next map",
       choices: onOff,

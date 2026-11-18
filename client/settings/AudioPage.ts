@@ -5,7 +5,6 @@
 
 import { Cvar } from "../../../../engine/core/Cvar";
 import { card, el, type FieldHost, formatPercent, seg, slider } from "./SettingsFields";
-import { cvarDefault } from "./SettingsModel";
 
 /** The effects' channels, each a share of the effects volume. */
 const MIX = [
@@ -55,7 +54,6 @@ export class AudioPage {
         format: formatPercent,
         get: () => Cvar.getNumber(volume),
         set: (value) => Cvar.set(volume, value),
-        initial: () => Number(cvarDefault(volume)),
       });
       host.addRefresh(() => {
         big.replaceChildren(String(Math.round(Cvar.getNumber(volume) * 100)), el("small", "", "%"));
@@ -76,7 +74,6 @@ export class AudioPage {
         format: formatPercent,
         get: () => Cvar.getNumber(cvar),
         set: (value) => Cvar.set(cvar, value),
-        initial: () => Number(cvarDefault(cvar)),
       });
     }
   }

@@ -19,11 +19,10 @@ The quickest way is **Quick play**, the pink key at the top of the rail: it
 opens a private FFA room, adds four bots and votes a random map. Press
 **Ready** when you are set; the match loads once you are ready.
 
-To pick the mode and map yourself, enter any room and press **Add bot**. Bots play only in private rooms, so a
-public room turns private when the first bot joins; its invite link still brings
-your friends in. Add as many as the mode needs (FFA starts from four players) and set the map vote; the room chooses a standard bot preset
+To pick the mode and map yourself, enter any room and press **Add AI player**.
+A public room stays public, so other players can still find it and join. Add as many as the mode needs (FFA starts from four players) and set the map vote; the room chooses a standard bot preset
 near your private rating, with **medium** as the fallback for a new player.
-Private bot matches can update your **private** rating and record, separately from
+Bot matches can update your **private** rating and record, separately from
 public play. See [Connecting → In the Ready Room](../multiplayer/connecting.md#in-the-ready-room).
 
 Then **ready up**. When everyone is ready the match loads.
