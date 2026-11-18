@@ -51,6 +51,7 @@ import { ClientSilenceMonitor } from "./ClientSilenceMonitor";
 import { debugEnabled, debugLog } from "./DebugLog";
 // Demo recording
 import { DemoRecorder } from "./DemoRecorder";
+import { FairPlayLedger } from "./FairPlayLedger";
 import type { AwardEvent } from "./gametypes/AwardTracker";
 import type { BaseGametype } from "./gametypes/BaseGametype";
 import { Deathmatch } from "./gametypes/Deathmatch";
@@ -139,6 +140,9 @@ export class GameServer {
   private knownProjectileIds: Set<number> = new Set();
   private config: GameServerConfig;
   private readonly matchAdmission: MatchAdmission | null;
+  /** This match's fair-play counters per account, sent to the lobby with the result. */
+  private readonly fairPlay = new FairPlayLedger();
+  private fairPlayReported = false;
   private readonly playedSeats = new Map<
     string,
     Omit<PlayedSeatResult, "placement"> & { playerId: PlayerId; playerName: string; accountId: number | null }
@@ -595,6 +599,51 @@ export class GameServer {
     } catch (error) {
       console.error("[GameServer] Could not deliver final result:", error);
     }
+    this.reportFairPlay(admission.matchId);
+  }
+
+  /**
+   * Send the lobby this match's fair-play counters, once, beside its result.
+   * Folds in everyone still here, and freezes the ledger so a departure after
+   * the report counts nothing twice.
+   */
+  private reportFairPlay(matchId: string): void {
+    if (this.fairPlayReported || !this.config.onFairPlay || !this.config.matchGametype) return;
+    for (const client of this.clients.values()) {
+      if (client.isSpectator) continue;
+      this.foldFairPlayConnection(client);
+      this.foldFairPlayEntity(client);
+    }
+    for (const client of this.suspended.clients()) this.foldFairPlayEntity(client);
+    this.fairPlayReported = true;
+    const accounts = this.fairPlay.report();
+    if (!accounts.length) return;
+    try {
+      this.config.onFairPlay({ matchId, gametype: this.config.matchGametype, endedAt: Date.now(), accounts });
+    } catch (error) {
+      console.error("[GameServer] Could not deliver fair-play report:", error);
+    }
+  }
+
+  /** Fold a connection's Telemetry and warp strikes into the fair-play ledger before they go. */
+  private foldFairPlayConnection(client: ClientInfo): void {
+    if (this.fairPlayReported || client.isBot || typeof client.accountId !== "number") return;
+    this.fairPlay.foldTelemetry(client.accountId, this.telemetry.get(client.playerId));
+    this.fairPlay.noteStrikes(
+      client.accountId,
+      client.playerId as number,
+      this.movementValidator.getStrikes(client.playerId),
+    );
+  }
+
+  /** Fold an entity's accuracy and tripwire count into the fair-play ledger before it is forgotten. */
+  private foldFairPlayEntity(client: ClientInfo): void {
+    if (this.fairPlayReported || client.isBot || typeof client.accountId !== "number") return;
+    this.fairPlay.foldEntity(
+      client.accountId,
+      this.weaponSystem.getAccuracy(client.entityId),
+      this.physicsSystem.getTripwireHits(client.entityId as number),
+    );
   }
 
   /** Reset all authoritative/transient warmup state before match-start respawns. */
@@ -1444,6 +1493,7 @@ export class GameServer {
       // and the gametype keeps their score and slot until they resume or the
       // grace runs out. Only what belongs to the dead connection is released.
       this.suspended.suspend(client, Date.now());
+      this.foldFairPlayConnection(client);
       this.movementValidator.removeClient(client.playerId);
       this.telemetry.remove(client.playerId);
       this.timeoutForDrop(client);
@@ -1451,6 +1501,8 @@ export class GameServer {
         `[GameServer] Player ${client.playerId} "${client.playerName}" dropped (${reason}) — seat held for ${(this.suspended.graceMs / 1000).toFixed(0)}s`,
       );
     } else if (!client.isSpectator) {
+      this.foldFairPlayConnection(client);
+      this.foldFairPlayEntity(client);
       // Remove player entity
       const state = this.simulation.getStateMut();
       state.removeEntity(client.entityId);
@@ -1465,6 +1517,7 @@ export class GameServer {
       this.telemetry.remove(client.playerId);
     } else {
       // Spectating preserves session state; a real disconnect must release it.
+      this.foldFairPlayConnection(client);
       this.gametypeController.onPlayerDisconnect(client.playerId);
       this.movementValidator.forgetClient(client.playerId);
       this.lagCompensation.forgetClient(client.playerId);
@@ -2299,6 +2352,8 @@ export class GameServer {
     // rejoin (a free respawn) behind the join rate gate.
     client.lastTeamSwitchMs = performance.now();
 
+    this.foldFairPlayConnection(client);
+    this.foldFairPlayEntity(client);
     // Remove player entity from simulation
     this.capturePlayingSeat(client);
     const playedSeat = client.playedSeatId ? this.playedSeats.get(client.playedSeatId) : undefined;

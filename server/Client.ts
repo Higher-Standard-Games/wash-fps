@@ -6,6 +6,7 @@
  */
 
 import type { EntityId, PlayerId } from "@engine/server/ecs/types";
+import type { FairPlayReport } from "@engine/server/network/FairPlayReport";
 import type { AdmissionGrant, AdmissionManifest } from "@engine/server/network/MatchAdmission";
 import type { MatchResultReport } from "@engine/server/network/MatchResultReport";
 import type { ClientConnection } from "@engine/server/network/transport/WebSocketTransport";
@@ -36,6 +37,8 @@ export interface GameServerConfig {
   matchAdmission?: AdmissionManifest;
   /** Server-owned final snapshot, delivered once on entering PostGame. */
   onFinalResult?: (report: MatchResultReport) => void;
+  /** Per-account fair-play counters, delivered once beside the final result (FairPlayLedger). */
+  onFairPlay?: (report: FairPlayReport) => void;
   matchGametype?: string;
   matchMapDigest?: string;
   /**

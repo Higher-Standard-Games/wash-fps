@@ -23,7 +23,7 @@ import { rememberMapTitle } from "../../../engine/ui/MapTitles";
 import { UINavigation } from "../../../engine/ui/navigation/UINavigation";
 import { GamePanel } from "../../../engine/ui/panels/GamePanel";
 import { UIStyles } from "../../../engine/ui/UIStyles";
-import { accountIsNew, currentIdentity, LoginError } from "../../../lobby/AccountSession";
+import { accountIsNew, banNoticeText, currentIdentity, LoginError } from "../../../lobby/AccountSession";
 import { CLIENT_DISCONNECT_REASON, type LobbyClient } from "../../../lobby/LobbyClient";
 import type {
   CampaignMissionInfo,
@@ -164,6 +164,8 @@ export class LobbyPanel extends GamePanel {
   private lobbyFullNotice: LobbyFullNotice | null = null;
   private loginAttempt: Promise<void> | null = null;
   private loginFailures = 0;
+  /** The lobby's ban notice once it refused this player; set, the panel stops trying to reconnect. */
+  private banNotice: string | null = null;
   private destroyed = false;
   private currentInviteToken: string | undefined;
   private roomToRejoin: { lobbyId: string; inviteToken?: string; accountId: string } | null = null;
@@ -709,7 +711,13 @@ export class LobbyPanel extends GamePanel {
           // close this client made itself (switching accounts) reconnects on
           // its own, so a retry here would only race it.
           const deliberate = msg?.reason === CLIENT_DISCONNECT_REASON;
-          if (!this.destroyed && !this.loginAttempt && !this.lobbyFullNotice?.isFull && !deliberate) {
+          if (
+            !this.destroyed &&
+            !this.loginAttempt &&
+            !this.lobbyFullNotice?.isFull &&
+            !deliberate &&
+            !this.banNotice
+          ) {
             this.scheduleOfflineRetry();
           }
         }),
@@ -786,6 +794,14 @@ export class LobbyPanel extends GamePanel {
         this.showDisconnectedState(false);
         return;
       }
+      if (err instanceof LoginError && err.code === "banned") {
+        this.banNotice = banNoticeText(err.ban);
+        this.lobbyFullNotice?.close();
+        this.showDisconnectedState(false);
+        if (this.playNoticeEl) this.playNoticeEl.textContent = this.banNotice.split("\n")[0];
+        for (const line of this.banNotice.split("\n")) this.appendChatMessage("", line, true);
+        return;
+      }
       console.warn("[LobbyPanel] Could not connect to lobby server:", err);
       devLog("[LobbyPanel] Showing disconnected lobby state");
       this.scheduleOfflineRetry();
@@ -794,6 +810,7 @@ export class LobbyPanel extends GamePanel {
     }
     if (this.destroyed) return;
     this.loginFailures = 0;
+    this.banNotice = null;
     this.lobbyFullNotice?.close();
 
     // Share lobby client with DemoService so console `demolist` command works

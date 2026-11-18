@@ -179,6 +179,13 @@ host:
    `/usr/local/sbin/washoi-activate`. Without it, activation keeps
    restarting `washoi-bots` and fails once that is disabled.
 5. **Retire the bot server**: `systemctl disable --now washoi-bots`.
+6. **Fair play.** The lobby creates `fairplay.db` in its data directory at
+   first start (match counters, player reports, sanctions and address bans).
+   Back it up with `players.db`. To review reports or ban, run as the lobby's
+   user from an engine checkout with its dependencies installed:
+   `npm run fair-play -- reports --data-dir /srv/washoi/server-data`
+   (`--help` lists the commands). The running lobby applies a ban within a
+   minute.
 
 To roll back to beta.12, run `systemctl enable --now washoi-bots` first:
 the older lobby asks the bot server for bots, and with the bot server enabled
