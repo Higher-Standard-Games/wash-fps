@@ -89,6 +89,8 @@ export interface ClientInfo {
   lastInputSeq: number;
   /** Last snapshot tick the client has acknowledged receiving (for delta compression) */
   lastAckedTick: number;
+  /** When `lastAckedTick` last moved forward (performance.now); undefined before the first ack. */
+  lastAckAtMs?: number;
   /**
    * Smoothed round trip in ms, measured by the server: snapshot sent → ack back.
    * 0 until the first ack lands. This is the game loop's actual round trip, which

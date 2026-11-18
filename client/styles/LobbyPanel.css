@@ -1387,8 +1387,11 @@
     margin: 4px 12px 10px;
   }
 
+  /* The links wrap to several rows here: the page ends above them instead of
+     running underneath, so nothing it shows is covered */
   .lobby__page {
-    padding: 20px 16px calc(20px + var(--lobby-links-height, 0px));
+    height: 100%;
+    padding: 20px 16px;
   }
 
   .lobby__play-tiles {
@@ -1420,6 +1423,15 @@
   .lobby__rail-nav .raised-key--nav .raised-key__face {
     min-height: 54px;
     padding-block: 12px;
+  }
+}
+
+/* A landscape phone: the links take a large share of the height, so the page
+   ends above them as it does on a narrow screen */
+@media (min-width: 701px) and (max-height: 500px) {
+  .lobby__page {
+    height: 100%;
+    padding-bottom: 20px;
   }
 }
 

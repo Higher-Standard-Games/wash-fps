@@ -102,6 +102,11 @@ const HANDSHAKE_GRACE_MS = 15_000;
 export const SPECTATOR_DELAY_SECONDS = 10;
 /** Ticks a command's view may trail the newest snapshot its client acked (64 ms). */
 export const VIEW_TICK_SLACK = 8;
+/**
+ * A client acks every snapshot it takes (about 60 a second). One whose newest
+ * ack is older than this has stopped acking; its claimed view is not trusted.
+ */
+export const ACK_STALE_MS = 500;
 
 /** Commands a paused match queues per player: about a tenth of a second's worth. */
 const PAUSED_INPUT_LIMIT = 16;
@@ -1685,7 +1690,9 @@ export class GameServer {
         this.msgCounts.ack++;
         const { tick } = MessageCodec.decodeAck(data);
         this.recordAckRoundTrip(client, tick);
-        client.lastAckedTick = nextAckedTick(client.lastAckedTick, tick, Number(this.simulation.currentTick));
+        const acked = nextAckedTick(client.lastAckedTick, tick, Number(this.simulation.currentTick));
+        if (acked !== client.lastAckedTick) client.lastAckAtMs = performance.now();
+        client.lastAckedTick = acked;
       } else if (msgType === MessageType.Ping) {
         // ClockSync: reply with Pong containing client's send time + server time.
         // An honest client pings at most every 100 ms (a sync burst), then every
@@ -2140,6 +2147,7 @@ export class GameServer {
     client.connection = conn;
     client.sentSnapshots?.clear();
     client.lastAckedTick = 0;
+    client.lastAckAtMs = undefined;
     client.snapshotsSinceFull = 0;
     // The new connection holds nothing yet: send every lasting value again.
     client.sentState?.clear();
@@ -2397,11 +2405,20 @@ export class GameServer {
    * acked: it held that one when it sent this command, so claiming an older
    * view only buys a deeper rewind to pick the best of (backtracking). The
    * slack covers a client that acks on its network thread before its game loop
-   * takes the snapshot, at 20 FPS. Each clamp is counted: an honest
-   * client only trips it across a long hitch.
+   * takes the snapshot, at 20 FPS. A client whose acks have stopped (none for
+   * ACK_STALE_MS, or none yet) gets no rewind for a past view: the floor rests on its acks, so
+   * withholding them would otherwise buy the whole budget while its measured
+   * ping stays low. To rewind further a client must look laggier, in the ping
+   * everyone sees. Each refusal is counted: an honest client only trips one
+   * across a long hitch.
    */
   private boundViewTick(client: ClientInfo, viewTick: number): number {
     const now = Number(this.simulation.currentTick);
+    const rewinds = viewTick > 0 && viewTick < now;
+    if (rewinds && (client.lastAckAtMs === undefined || performance.now() - client.lastAckAtMs > ACK_STALE_MS)) {
+      this.telemetry.recordViolation(client.playerId, "backtrack");
+      return 0;
+    }
     const floor = client.lastAckedTick > 0 ? client.lastAckedTick - VIEW_TICK_SLACK : 0;
     if (viewTick > 0 && viewTick < floor) {
       this.telemetry.recordViolation(client.playerId, "backtrack");

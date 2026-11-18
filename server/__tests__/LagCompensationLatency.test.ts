@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SnapshotReceiver } from "../../../../engine/network/client/SnapshotReceiver";
 import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
-import { GameServer, type GameServerConfig, VIEW_TICK_SLACK } from "../GameServer";
+import { ACK_STALE_MS, GameServer, type GameServerConfig, VIEW_TICK_SLACK } from "../GameServer";
 import { Deathmatch } from "../gametypes/Deathmatch";
 import { ProtocolTestClient } from "./_protocolTestClient";
 
@@ -89,9 +89,11 @@ class LaggedPlayer {
   private constructor(
     readonly client: ProtocolTestClient,
     readonly playerId: string,
+    private readonly acks: boolean,
   ) {}
 
-  static async join(port: number, name: string, oneWayMs: number): Promise<LaggedPlayer> {
+  /** `acks: false` is a client that never acknowledges a snapshot. */
+  static async join(port: number, name: string, oneWayMs: number, acks = true): Promise<LaggedPlayer> {
     const client = await ProtocolTestClient.connect(port);
     clients.push(client);
     client.send(MessageCodec.encodeJoin(name));
@@ -99,7 +101,7 @@ class LaggedPlayer {
     client.send(MessageCodec.encodeJoinGame());
     // Latency goes on after the handshake, so joining stays quick.
     client.setLatency(oneWayMs);
-    const player = new LaggedPlayer(client, accept.playerId);
+    const player = new LaggedPlayer(client, accept.playerId, acks);
     player.watchSnapshots();
     return player;
   }
@@ -119,7 +121,7 @@ class LaggedPlayer {
           if (!snapshot) return false;
           const tick = snapshot.tick;
           if (tick > this.lastSnapshotTick) this.lastSnapshotTick = tick;
-          this.client.send(MessageCodec.encodeAck(tick));
+          if (this.acks) this.client.send(MessageCodec.encodeAck(tick));
         } catch {
           // A frame we cannot decode tells us nothing about the clock.
         }
@@ -233,6 +235,19 @@ describe("lag compensation under latency", () => {
     expect(viewTicks().every((t) => t >= 0)).toBe(true);
     player.dispose();
   });
+  it("gives no rewind to a client that has stopped acknowledging, and counts it", async () => {
+    const player = await LaggedPlayer.join(server.getPort(), "silent", 0, false);
+    await waitUntil(() => player.lastSnapshotTick > 40);
+    await new Promise((r) => setTimeout(r, ACK_STALE_MS + 50));
+    player.sendInput({ forward: 1, tick: player.lastSnapshotTick - 30 });
+    const telemetry = (server as unknown as { telemetry: { get(id: number): { backtrackCmds: number } | undefined } })
+      .telemetry;
+    const id = Number(player.playerId.replace("player_", ""));
+    await waitUntil(() => (telemetry.get(id)?.backtrackCmds ?? 0) > 0);
+    expect(viewTicks().filter((t) => t > 0)).toEqual([]);
+    player.dispose();
+  });
+
   it("holds a view tick claimed far behind the newest acked snapshot to the slack (backtrack)", async () => {
     const player = await LaggedPlayer.join(server.getPort(), "backtrack", 0);
     await waitUntil(() => player.lastSnapshotTick > 40);
