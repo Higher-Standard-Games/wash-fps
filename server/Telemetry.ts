@@ -54,6 +54,9 @@ export interface ClientMetrics {
   /** usercmds the sanitizer had to clamp (pitch beyond ±90° or |wishdir|>1) —
    *  also a contract violation; honest clients stay in range (WO-AC2). */
   clampedCmds: number;
+  /** usercmds claiming a view older than the newest snapshot the client had
+   *  acked, past the slack: a deeper lag-compensation rewind than it saw. */
+  backtrackCmds: number;
   /** Fraction of usercmds claiming aim-assisted input (touch or a controller), 0..1. */
   assistedShare: number;
   /** Times the assisted claim flipped between consecutive usercmds. */
@@ -75,6 +78,7 @@ interface ClientState {
   received: number;
   rejectedCmds: number;
   clampedCmds: number;
+  backtrackCmds: number;
   assistedCmds: number;
   assistedSwitches: number;
   lastAssisted: boolean | null;
@@ -122,6 +126,7 @@ export class Telemetry {
       received: 0,
       rejectedCmds: 0,
       clampedCmds: 0,
+      backtrackCmds: 0,
       assistedCmds: 0,
       assistedSwitches: 0,
       lastAssisted: null,
@@ -139,10 +144,11 @@ export class Telemetry {
    * clients essentially never trip these, so a nonzero count is a near-zero-FP
    * signal — but still only ever *one input to a score*, never a solo verdict (§0.3).
    */
-  recordViolation(playerId: PlayerId, kind: "rejected" | "clamped"): void {
+  recordViolation(playerId: PlayerId, kind: "rejected" | "clamped" | "backtrack"): void {
     const s = this.clients.get(playerId);
     if (!s) return;
     if (kind === "rejected") s.rejectedCmds++;
+    else if (kind === "backtrack") s.backtrackCmds++;
     else s.clampedCmds++;
   }
 
@@ -211,6 +217,7 @@ export class Telemetry {
       inputs: s.received,
       rejectedCmds: s.rejectedCmds,
       clampedCmds: s.clampedCmds,
+      backtrackCmds: s.backtrackCmds,
       assistedShare: s.received > 0 ? s.assistedCmds / s.received : 0,
       assistedSwitches: s.assistedSwitches,
     };

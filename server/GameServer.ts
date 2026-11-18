@@ -93,6 +93,14 @@ const EMPTY_SHUTDOWN_MS = 5_000;
  * refused resume, a stalled client — must not keep a finished server alive.
  */
 const HANDSHAKE_GRACE_MS = 15_000;
+/**
+ * How far behind the match a lobby match's spectators watch. Long enough that
+ * a second connection relaying positions to a player is useless (ghosting),
+ * short enough that a spectator still follows the match.
+ */
+export const SPECTATOR_DELAY_SECONDS = 10;
+/** Ticks a command's view may trail the newest snapshot its client acked (64 ms). */
+export const VIEW_TICK_SLACK = 8;
 
 /** Commands a paused match queues per player: about a tenth of a second's worth. */
 const PAUSED_INPUT_LIMIT = 16;
@@ -449,6 +457,9 @@ export class GameServer {
 
     // Snapshot broadcaster
     this.broadcaster = new SnapshotBroadcaster(this.simulation);
+    // Lobby matches show spectators the match a few seconds late (anti-ghosting)
+    const spectatorDelay = config.spectatorDelaySeconds ?? (config.matchAdmission ? SPECTATOR_DELAY_SECONDS : 0);
+    this.broadcaster.setSpectatorDelay(Math.round(spectatorDelay * config.tickRate));
   }
 
   /** Register only a verified seat that actually occupies a started match. */
@@ -1214,7 +1225,7 @@ export class GameServer {
           `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps flickHist=${m.flickHistogram.join(",")} ` +
           `warpStrikes=${strikes} ` +
           `acc=${accStr} hs=${hsStr} shots=${acc.shots} ` +
-          `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} tripwire=${tripwire} ` +
+          `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} backtrack=${m.backtrackCmds} tripwire=${tripwire} ` +
           `assisted=${(m.assistedShare * 100).toFixed(0)}% assistSwitches=${m.assistedSwitches}`,
       );
     }
@@ -2314,6 +2325,26 @@ export class GameServer {
     console.log(`[GameServer] Player ${client.playerId} is now spectating`);
   }
 
+  /**
+   * The view tick a command may claim. The client says which snapshot it was
+   * looking at when it aimed. Never the future: a tick past ours would rewind
+   * the wrong way. Nor much older than the newest snapshot it has already
+   * acked: it held that one when it sent this command, so claiming an older
+   * view only buys a deeper rewind to pick the best of (backtracking). The
+   * slack covers a client that acks on its network thread before its game loop
+   * takes the snapshot, at 20 FPS. Each clamp is counted (WO-AC2): an honest
+   * client only trips it across a long hitch.
+   */
+  private boundViewTick(client: ClientInfo, viewTick: number): number {
+    const now = Number(this.simulation.currentTick);
+    const floor = client.lastAckedTick > 0 ? client.lastAckedTick - VIEW_TICK_SLACK : 0;
+    if (viewTick > 0 && viewTick < floor) {
+      this.telemetry.recordViolation(client.playerId, "backtrack");
+      return Math.min(floor, now);
+    }
+    return Math.min(viewTick, now);
+  }
+
   private handleInput(client: ClientInfo, data: Uint8Array): void {
     // Spectators don't send input — skip silently
     if (client.isSpectator) return;
@@ -2388,9 +2419,7 @@ export class GameServer {
         buttons,
         sequence: seq,
         weaponSlot: clean.weaponSlot,
-        // The client says which snapshot it was looking at when it aimed. Never
-        // let it claim the future: a tick past ours would rewind the wrong way.
-        viewTick: Math.min(clean.viewTick, Number(this.simulation.currentTick)),
+        viewTick: this.boundViewTick(client, clean.viewTick),
       });
       client.lastInputSeq = seq;
       // Telemetry (WO-12): sample this accepted usercmd — arrival time for jitter,
