@@ -64,9 +64,13 @@ function bind(pages: Record<string, LeaderboardPage>): LeaderboardQuery[] {
   return asked;
 }
 
-function view(): LeaderboardView {
+/** The board, on Duel: it opens on All, and these tests read one mode's board. */
+function view(mode = "DUEL"): LeaderboardView {
   const board = new LeaderboardView(MODES, document.createElement("div"));
   document.body.append(board.root);
+  [...board.root.querySelectorAll<HTMLButtonElement>(".lobby__mode-key")]
+    .find((key) => key.textContent === mode)
+    ?.click();
   return board;
 }
 
@@ -160,6 +164,26 @@ describe("LeaderboardView", () => {
     board.clear();
     expect(board.root.querySelectorAll(".lb-plinth")).toHaveLength(0);
     expect(board.root.querySelector<HTMLElement>(".lb-board__foot")?.hidden).toBe(true);
+  });
+});
+
+describe("the All board", () => {
+  it("opens on All and names the mode each player's best rating comes from", async () => {
+    const asked = bind({
+      all: {
+        entries: [
+          { ...entry(1, 9), gametype: "amphi" },
+          { ...entry(2, 5), gametype: "duel" },
+        ],
+        total: 2,
+      },
+    });
+    const board = view("All");
+    await board.refresh();
+    expect(board.root.querySelector(".lobby__mode-key.is-on")?.textContent).toBe("All");
+    expect(asked.at(-1)).toMatchObject({ gametype: "all", system: "trueskill" });
+    expect(board.root.querySelector(".lb-plinth--1 .lb-plinth__tag--mode")?.textContent).toBe("AMPHI");
+    expect(board.root.querySelector(".lb-plinth--2 .lb-plinth__tag--mode")?.textContent).toBe("DUEL");
   });
 });
 

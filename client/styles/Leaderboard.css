@@ -461,6 +461,23 @@
   clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
 }
 
+/* On the All board: the mode a rating comes from, in that mode's colour */
+.lb-row__mode {
+  margin-left: 8px;
+  padding: 3px 7px;
+  background: var(--m, var(--accent));
+  color: var(--ink);
+  font: 900 11px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+}
+
+.lb-plinth__tag--mode {
+  background: var(--m, var(--accent));
+  color: var(--ink);
+}
+
 .lb-plinth__tag--bot {
   background: hsl(186, 90%, 46%);
   color: var(--ink);

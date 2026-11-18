@@ -23,6 +23,14 @@ export interface RankedMode {
 }
 
 type Entry = LeaderboardPage["entries"][number];
+
+/** Every mode at once: each player at their best mode's rating, that mode named on the row. */
+const ALL_MODE: RankedMode = {
+  id: "all",
+  title: "All",
+  accent: ["hsl(276 90% 64%)", "hsl(278 95% 80%)", "hsl(268 75% 54%)", "hsl(262 70% 36%)", "hsl(256 70% 22%)"],
+  mark: "hsl(276 90% 72%)",
+};
 type Period = "month" | "all";
 type Tab = Period | "list";
 
@@ -101,7 +109,12 @@ export class LeaderboardView {
   private readonly list: HTMLElement;
   private readonly listPin: HTMLElement;
 
-  constructor(modes: readonly RankedMode[], light: HTMLElement) {
+  /** The modes by id, for naming the mode on an All board row. */
+  private readonly modeById: ReadonlyMap<string, RankedMode>;
+
+  constructor(gameModes: readonly RankedMode[], light: HTMLElement) {
+    const modes = [ALL_MODE, ...gameModes];
+    this.modeById = new Map(gameModes.map((mode) => [mode.id, mode]));
     injectRaisedKeyStyles();
     UIStyles.injectCSS("lobby-leaderboard", leaderboardCss);
     this.mode = modes[0];
@@ -380,6 +393,8 @@ export class LeaderboardView {
     avatar.setAttribute("aria-hidden", "true");
     avatar.style.setProperty("--c", isYou ? "var(--gold-text)" : avatarColor(entry.name));
     who.append(avatar, el("span", "lb-row__name", entry.name));
+    const best = this.bestMode(entry);
+    if (best) who.append(best);
     if (entry.bot) who.append(el("span", "lb-row__bot", "Bot"));
     if (isYou) who.append(el("span", "lb-row__you", "You"));
     if (entry.provisional) who.append(el("span", "lb-row__note", "Provisional"));
@@ -408,6 +423,8 @@ export class LeaderboardView {
     const face = el("div", "lb-plinth__face");
     face.append(el("span", "lb-plinth__rank", String(entry.rank)));
     if (isYou) face.append(el("span", "lb-plinth__tag", "You"));
+    const best = this.bestMode(entry, "lb-plinth__tag lb-plinth__tag--mode");
+    if (best) face.append(best);
     if (entry.bot) face.append(el("span", "lb-plinth__tag lb-plinth__tag--bot", "Bot"));
     // The rating, large; a provisional one is drawn fainter rather than labelled
     const rating = el("span", `lb-plinth__wins${entry.provisional ? " is-provisional" : ""}`, String(entry.rating));
@@ -417,6 +434,15 @@ export class LeaderboardView {
     side.setAttribute("aria-hidden", "true");
     plinth.append(side, face);
     return plinth;
+  }
+
+  /** On the All board, the mode a row's rating comes from, as a tag in its colour. */
+  private bestMode(entry: Entry, className = "lb-row__mode"): HTMLElement | null {
+    if (this.mode.id !== "all" || !entry.gametype) return null;
+    const mode = this.modeById.get(entry.gametype);
+    const tag = el("span", className, mode?.title ?? entry.gametype.toUpperCase());
+    if (mode) tag.style.setProperty("--m", mode.mark);
+    return tag;
   }
 
   /** Matches played and the wins and losses, over a bar of wins against draws and losses. */

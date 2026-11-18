@@ -129,7 +129,9 @@ record or rating. Check Profile history for the stored decision.
 
 ## Leaderboard
 
-Pick a mode and see its ranking:
+Pick a mode and see its ranking. **All**, where the page opens, ranks every
+player by their best rating in any mode, with that mode named beside them and
+its record shown:
 
 - **30 days / All time**: choose the activity window; 30 days rolls continuously.
 - **Top 100**: the whole list, with a search.
