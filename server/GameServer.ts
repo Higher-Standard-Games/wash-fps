@@ -51,6 +51,7 @@ import { ClientSilenceMonitor } from "./ClientSilenceMonitor";
 import { debugEnabled, debugLog } from "./DebugLog";
 // Demo recording
 import { DemoRecorder } from "./DemoRecorder";
+import { FairPlayLedger } from "./FairPlayLedger";
 import type { AwardEvent } from "./gametypes/AwardTracker";
 import type { BaseGametype } from "./gametypes/BaseGametype";
 import { Deathmatch } from "./gametypes/Deathmatch";
@@ -93,6 +94,14 @@ const EMPTY_SHUTDOWN_MS = 5_000;
  * refused resume, a stalled client — must not keep a finished server alive.
  */
 const HANDSHAKE_GRACE_MS = 15_000;
+/**
+ * How far behind the match a lobby match's spectators watch. Long enough that
+ * a second connection relaying positions to a player is useless (ghosting),
+ * short enough that a spectator still follows the match.
+ */
+export const SPECTATOR_DELAY_SECONDS = 10;
+/** Ticks a command's view may trail the newest snapshot its client acked (64 ms). */
+export const VIEW_TICK_SLACK = 8;
 
 /** Commands a paused match queues per player: about a tenth of a second's worth. */
 const PAUSED_INPUT_LIMIT = 16;
@@ -131,6 +140,9 @@ export class GameServer {
   private knownProjectileIds: Set<number> = new Set();
   private config: GameServerConfig;
   private readonly matchAdmission: MatchAdmission | null;
+  /** This match's fair-play counters per account, sent to the lobby with the result. */
+  private readonly fairPlay = new FairPlayLedger();
+  private fairPlayReported = false;
   private readonly playedSeats = new Map<
     string,
     Omit<PlayedSeatResult, "placement"> & { playerId: PlayerId; playerName: string; accountId: number | null }
@@ -449,6 +461,9 @@ export class GameServer {
 
     // Snapshot broadcaster
     this.broadcaster = new SnapshotBroadcaster(this.simulation);
+    // Lobby matches show spectators the match a few seconds late (anti-ghosting)
+    const spectatorDelay = config.spectatorDelaySeconds ?? (config.matchAdmission ? SPECTATOR_DELAY_SECONDS : 0);
+    this.broadcaster.setSpectatorDelay(Math.round(spectatorDelay * config.tickRate));
   }
 
   /** Register only a verified seat that actually occupies a started match. */
@@ -584,6 +599,51 @@ export class GameServer {
     } catch (error) {
       console.error("[GameServer] Could not deliver final result:", error);
     }
+    this.reportFairPlay(admission.matchId);
+  }
+
+  /**
+   * Send the lobby this match's fair-play counters, once, beside its result.
+   * Folds in everyone still here, and freezes the ledger so a departure after
+   * the report counts nothing twice.
+   */
+  private reportFairPlay(matchId: string): void {
+    if (this.fairPlayReported || !this.config.onFairPlay || !this.config.matchGametype) return;
+    for (const client of this.clients.values()) {
+      if (client.isSpectator) continue;
+      this.foldFairPlayConnection(client);
+      this.foldFairPlayEntity(client);
+    }
+    for (const client of this.suspended.clients()) this.foldFairPlayEntity(client);
+    this.fairPlayReported = true;
+    const accounts = this.fairPlay.report();
+    if (!accounts.length) return;
+    try {
+      this.config.onFairPlay({ matchId, gametype: this.config.matchGametype, endedAt: Date.now(), accounts });
+    } catch (error) {
+      console.error("[GameServer] Could not deliver fair-play report:", error);
+    }
+  }
+
+  /** Fold a connection's Telemetry and warp strikes into the fair-play ledger before they go. */
+  private foldFairPlayConnection(client: ClientInfo): void {
+    if (this.fairPlayReported || client.isBot || typeof client.accountId !== "number") return;
+    this.fairPlay.foldTelemetry(client.accountId, this.telemetry.get(client.playerId));
+    this.fairPlay.noteStrikes(
+      client.accountId,
+      client.playerId as number,
+      this.movementValidator.getStrikes(client.playerId),
+    );
+  }
+
+  /** Fold an entity's accuracy and tripwire count into the fair-play ledger before it is forgotten. */
+  private foldFairPlayEntity(client: ClientInfo): void {
+    if (this.fairPlayReported || client.isBot || typeof client.accountId !== "number") return;
+    this.fairPlay.foldEntity(
+      client.accountId,
+      this.weaponSystem.getAccuracy(client.entityId),
+      this.physicsSystem.getTripwireHits(client.entityId as number),
+    );
   }
 
   /** Reset all authoritative/transient warmup state before match-start respawns. */
@@ -1214,7 +1274,7 @@ export class GameServer {
           `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps flickHist=${m.flickHistogram.join(",")} ` +
           `warpStrikes=${strikes} ` +
           `acc=${accStr} hs=${hsStr} shots=${acc.shots} ` +
-          `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} tripwire=${tripwire} ` +
+          `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} backtrack=${m.backtrackCmds} tripwire=${tripwire} ` +
           `assisted=${(m.assistedShare * 100).toFixed(0)}% assistSwitches=${m.assistedSwitches}`,
       );
     }
@@ -1433,6 +1493,7 @@ export class GameServer {
       // and the gametype keeps their score and slot until they resume or the
       // grace runs out. Only what belongs to the dead connection is released.
       this.suspended.suspend(client, Date.now());
+      this.foldFairPlayConnection(client);
       this.movementValidator.removeClient(client.playerId);
       this.telemetry.remove(client.playerId);
       this.timeoutForDrop(client);
@@ -1440,6 +1501,8 @@ export class GameServer {
         `[GameServer] Player ${client.playerId} "${client.playerName}" dropped (${reason}) — seat held for ${(this.suspended.graceMs / 1000).toFixed(0)}s`,
       );
     } else if (!client.isSpectator) {
+      this.foldFairPlayConnection(client);
+      this.foldFairPlayEntity(client);
       // Remove player entity
       const state = this.simulation.getStateMut();
       state.removeEntity(client.entityId);
@@ -1454,6 +1517,7 @@ export class GameServer {
       this.telemetry.remove(client.playerId);
     } else {
       // Spectating preserves session state; a real disconnect must release it.
+      this.foldFairPlayConnection(client);
       this.gametypeController.onPlayerDisconnect(client.playerId);
       this.movementValidator.forgetClient(client.playerId);
       this.lagCompensation.forgetClient(client.playerId);
@@ -2288,6 +2352,8 @@ export class GameServer {
     // rejoin (a free respawn) behind the join rate gate.
     client.lastTeamSwitchMs = performance.now();
 
+    this.foldFairPlayConnection(client);
+    this.foldFairPlayEntity(client);
     // Remove player entity from simulation
     this.capturePlayingSeat(client);
     const playedSeat = client.playedSeatId ? this.playedSeats.get(client.playedSeatId) : undefined;
@@ -2312,6 +2378,26 @@ export class GameServer {
     client.lastInputSeq = 0;
 
     console.log(`[GameServer] Player ${client.playerId} is now spectating`);
+  }
+
+  /**
+   * The view tick a command may claim. The client says which snapshot it was
+   * looking at when it aimed. Never the future: a tick past ours would rewind
+   * the wrong way. Nor much older than the newest snapshot it has already
+   * acked: it held that one when it sent this command, so claiming an older
+   * view only buys a deeper rewind to pick the best of (backtracking). The
+   * slack covers a client that acks on its network thread before its game loop
+   * takes the snapshot, at 20 FPS. Each clamp is counted (WO-AC2): an honest
+   * client only trips it across a long hitch.
+   */
+  private boundViewTick(client: ClientInfo, viewTick: number): number {
+    const now = Number(this.simulation.currentTick);
+    const floor = client.lastAckedTick > 0 ? client.lastAckedTick - VIEW_TICK_SLACK : 0;
+    if (viewTick > 0 && viewTick < floor) {
+      this.telemetry.recordViolation(client.playerId, "backtrack");
+      return Math.min(floor, now);
+    }
+    return Math.min(viewTick, now);
   }
 
   private handleInput(client: ClientInfo, data: Uint8Array): void {
@@ -2388,9 +2474,7 @@ export class GameServer {
         buttons,
         sequence: seq,
         weaponSlot: clean.weaponSlot,
-        // The client says which snapshot it was looking at when it aimed. Never
-        // let it claim the future: a tick past ours would rewind the wrong way.
-        viewTick: Math.min(clean.viewTick, Number(this.simulation.currentTick)),
+        viewTick: this.boundViewTick(client, clean.viewTick),
       });
       client.lastInputSeq = seq;
       // Telemetry (WO-12): sample this accepted usercmd — arrival time for jitter,

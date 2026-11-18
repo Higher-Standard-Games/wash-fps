@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SnapshotReceiver } from "../../../../engine/network/client/SnapshotReceiver";
 import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
-import { GameServer, type GameServerConfig } from "../GameServer";
+import { GameServer, type GameServerConfig, VIEW_TICK_SLACK } from "../GameServer";
 import { Deathmatch } from "../gametypes/Deathmatch";
 import { ProtocolTestClient } from "./_protocolTestClient";
 
@@ -231,6 +231,23 @@ describe("lag compensation under latency", () => {
     player.sendInput({ forward: 1, tick: 0 });
     await new Promise((r) => setTimeout(r, 120));
     expect(viewTicks().every((t) => t >= 0)).toBe(true);
+    player.dispose();
+  });
+  it("holds a view tick claimed far behind the newest acked snapshot to the slack (backtrack)", async () => {
+    const player = await LaggedPlayer.join(server.getPort(), "backtrack", 0);
+    await waitUntil(() => player.lastSnapshotTick > 40);
+    const acked = () =>
+      Math.max(
+        ...[...(server as unknown as { clients: Map<string, { lastAckedTick: number }> }).clients.values()].map(
+          (c) => c.lastAckedTick,
+        ),
+      );
+    await waitUntil(() => acked() > 40);
+    const floor = acked() - VIEW_TICK_SLACK;
+    // Claim a view 30 ticks older than anything the client holds
+    player.sendInput({ forward: 1, tick: player.lastSnapshotTick - 30 });
+    await waitUntil(() => viewTicks().some((t) => t > 0));
+    for (const tick of viewTicks().filter((t) => t > 0)) expect(tick).toBeGreaterThanOrEqual(floor);
     player.dispose();
   });
 });

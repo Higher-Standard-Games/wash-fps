@@ -16,6 +16,7 @@
 import * as fs from "node:fs";
 import { runCli } from "../../../cli/_runCli";
 import { markServerMemory } from "../../../cli/ServerMemoryMarker";
+import { signFairPlayReport } from "../../../engine/server/network/FairPlayReport";
 import { ADMIT_ACK_PREFIX, ADMIT_COMMAND, type AdmissionManifest } from "../../../engine/server/network/MatchAdmission";
 import { signMatchResult } from "../../../engine/server/network/MatchResultReport";
 import { persistFinalResult } from "../../../lobby/ResultOutbox";
@@ -167,6 +168,12 @@ function parseArgs(): GameServerConfig & { gamePath: string; gametype: string } 
               }
             }
             process.stdout.write(`${line}\n`);
+          }
+        : undefined,
+    onFairPlay:
+      matchAdmission && resultSecret
+        ? (report: Parameters<typeof signFairPlayReport>[0]) => {
+            process.stdout.write(`${signFairPlayReport(report, resultSecret)}\n`);
           }
         : undefined,
   };

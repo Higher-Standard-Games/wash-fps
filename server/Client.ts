@@ -6,6 +6,7 @@
  */
 
 import type { EntityId, PlayerId } from "@engine/server/ecs/types";
+import type { FairPlayReport } from "@engine/server/network/FairPlayReport";
 import type { AdmissionGrant, AdmissionManifest } from "@engine/server/network/MatchAdmission";
 import type { MatchResultReport } from "@engine/server/network/MatchResultReport";
 import type { ClientConnection } from "@engine/server/network/transport/WebSocketTransport";
@@ -36,8 +37,16 @@ export interface GameServerConfig {
   matchAdmission?: AdmissionManifest;
   /** Server-owned final snapshot, delivered once on entering PostGame. */
   onFinalResult?: (report: MatchResultReport) => void;
+  /** Per-account fair-play counters, delivered once beside the final result (FairPlayLedger). */
+  onFairPlay?: (report: FairPlayReport) => void;
   matchGametype?: string;
   matchMapDigest?: string;
+  /**
+   * Seconds spectators watch behind the match. Defaults to
+   * SPECTATOR_DELAY_SECONDS on a lobby match (one with `matchAdmission`), live
+   * otherwise.
+   */
+  spectatorDelaySeconds?: number;
   /** Lobby visibility at match start; recordings carry this flag. */
   privateMatch?: boolean;
   /**
@@ -108,6 +117,12 @@ export interface ClientInfo {
   chatStamps?: number[];
   /** Actual per-client snapshots, indexed by tick; only ACKed entries are baselines. */
   sentSnapshots?: Map<number, GameState>;
+  /** Newest snapshot tick sent, kept while spectators are delayed: the feed never goes back past it. */
+  newestSentTick?: number;
+  /** The last snapshot sent, repeated while a new spectator waits for the delayed feed. */
+  lastSnapshotBytes?: Uint8Array;
+  /** When a snapshot last went to this client (performance.now), while spectators are delayed. */
+  lastSnapshotSentMs?: number;
   /** Successful sends since the last full snapshot (bounded recovery interval). */
   snapshotsSinceFull?: number;
   /**

@@ -11,6 +11,7 @@
  */
 
 import { CampaignStore } from "../../../lobby/CampaignStore";
+import { FairPlayStore } from "../../../lobby/FairPlayStore";
 import { GameServerSpawner } from "../../../lobby/GameServerSpawner";
 import { DEFAULT_MAX_PLAYERS, LobbyServer } from "../../../lobby/LobbyServer";
 import { MatchResultStore } from "../../../lobby/MatchResultStore";
@@ -139,6 +140,7 @@ const players = PlayerStore.open(dataDir, (name) => isBotName(name) || server.is
 const results = MatchResultStore.open(dataDir);
 const settings = SettingsStore.open(dataDir);
 const campaign = CampaignStore.open(dataDir);
+const fairPlay = FairPlayStore.open(dataDir);
 const maxPlayers = maxPlayersArg === undefined || maxPlayersArg === "" ? DEFAULT_MAX_PLAYERS : Number(maxPlayersArg);
 if (!Number.isInteger(maxPlayers) || maxPlayers < 0) {
   console.error(`--max-players must be a whole number, 0 for no cap (got "${maxPlayersArg}").`);
@@ -160,6 +162,7 @@ const server = new LobbyServer(port, new GameServerSpawner(undefined, FPS_SERVER
   results,
   settings,
   campaign,
+  fairPlay,
   maxPlayers,
 });
 console.log(`  Data directory: ${dataDir}`);
@@ -177,6 +180,7 @@ server
     console.error("Failed to start lobby server:", err);
     settings.close();
     campaign.close();
+    fairPlay.close();
     results.close();
     players.close();
     process.exit(1);
@@ -190,6 +194,7 @@ process.on("SIGINT", async () => {
   botIntel?.close();
   settings.close();
   campaign.close();
+  fairPlay.close();
   results.close();
   players.close();
   process.exit(0);
@@ -201,6 +206,7 @@ process.on("SIGTERM", async () => {
   botIntel?.close();
   settings.close();
   campaign.close();
+  fairPlay.close();
   results.close();
   players.close();
   process.exit(0);

@@ -1,4 +1,5 @@
 import type { PlayerId } from "@engine/server/ecs/types";
+import { type FairPlayReport, signFairPlayReport, verifyFairPlayReport } from "@engine/server/network/FairPlayReport";
 import { issueDropInSeat, issueMatchAdmission } from "@engine/server/network/MatchAdmission";
 import { type MatchResultReport, signMatchResult, verifyMatchResult } from "@engine/server/network/MatchResultReport";
 import { MatchPhase } from "@shared/server/gametype";
@@ -36,6 +37,7 @@ describe("played match result over real sockets", () => {
   let server: GameServer;
   const clients: ProtocolTestClient[] = [];
   let reports: MatchResultReport[];
+  let fairPlay: FairPlayReport[];
 
   afterEach(async () => {
     await Promise.all(clients.map((client) => client.close()));
@@ -59,6 +61,7 @@ describe("played match result over real sockets", () => {
       30 * 60_000,
     );
     reports = [];
+    fairPlay = [];
     const mode: BaseGametype =
       gametype === "ffa" ? new FastFfa() : gametype === "duel" ? new FastDuel() : new FastAmphi();
     server = new GameServer(
@@ -75,6 +78,7 @@ describe("played match result over real sockets", () => {
         matchAdmission: manifest,
         matchGametype: gametype,
         onFinalResult: (report) => reports.push(report),
+        onFairPlay: (report) => fairPlay.push(report),
       },
       mode,
     );
@@ -130,6 +134,40 @@ describe("played match result over real sockets", () => {
     expect(verifyMatchResult(signMatchResult(report, "secret"), "secret", expected)).toEqual(report);
     return report;
   }
+
+  it("sends each account's fair-play counters once, beside the result", async () => {
+    const { match, ids, expected } = await setup("ffa", 3);
+    // Pitch past straight up: an input an honest client never sends
+    for (let seq = 1; seq <= 3; seq++) {
+      clients[0].send(
+        MessageCodec.encodeCommand(`player_${ids[0]}`, seq, {
+          direction: { x: 0, y: 0, z: 1 },
+          pitch: 3,
+          yaw: 0,
+          buttons: 0,
+          tick: 0,
+          weaponSlot: 0,
+        }),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    match.addScore(ids[0], 5);
+    await final(expected);
+    await vi.waitFor(() => expect(fairPlay).toHaveLength(1));
+    const report = fairPlay[0];
+    expect(report.matchId).toBe(expected.matchId);
+    expect(report.accounts.map((account) => account.accountId).sort()).toEqual([10, 11, 12]);
+    const first = report.accounts.find((account) => account.accountId === 10)!;
+    expect(first.signals.clampedCmds).toBe(3);
+    expect(first.signals.inputs).toBeGreaterThanOrEqual(3);
+    const line = signFairPlayReport(report, "secret");
+    expect(verifyFairPlayReport(line, "secret", expected)).toEqual(report);
+    // A result line's secret does not make a forged fair-play line pass
+    expect(verifyFairPlayReport(line, "other", expected)).toBeNull();
+    await clients[1].close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fairPlay).toHaveLength(1);
+  });
 
   it("includes a held disconnected player at a normal finish and ranks lower ties", async () => {
     const { match, ids, expected } = await setup("ffa", 4);
