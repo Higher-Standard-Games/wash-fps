@@ -104,8 +104,10 @@ changed() { # changed <surface> <current-sha>  -> 0 yes, 1 no
 }
 mark() { printf '%s\n' "$2" > "$STATE/$1.sha"; log "recorded $1 @ ${2:0:12}"; }
 
-ensure_deps() { # ensure_deps <repo-dir>  — npm ci only when the lockfile changed
-  local d="$1" lock="$d/package-lock.json" key sf
+ensure_deps() { # ensure_deps <repo-dir> [no-scripts]  — npm ci only when the lockfile changed
+  # no-scripts: dependencies' install scripts never run on this host, which
+  # holds the player database and keys; the repository's own postinstall does
+  local d="$1" scripts="${2:-}" lock="$d/package-lock.json" key sf
   [[ -f "$lock" ]] || die "no package-lock.json in $d"
   key="$(sha1sum "$lock" | cut -d' ' -f1)"
   sf="$STATE/$(basename "$d").lock"
@@ -113,7 +115,11 @@ ensure_deps() { # ensure_deps <repo-dir>  — npm ci only when the lockfile chan
     log "deps unchanged in $d — skipping npm ci"
   else
     log "npm ci in $d"
-    ( cd "$d" && npm ci --no-audit --no-fund )
+    if [[ $scripts == no-scripts ]]; then
+      ( cd "$d" && npm ci --no-audit --no-fund --ignore-scripts && npm run --if-present postinstall )
+    else
+      ( cd "$d" && npm ci --no-audit --no-fund )
+    fi
     printf '%s\n' "$key" > "$sf"
   fi
 }
@@ -148,7 +154,7 @@ prepare_shag() {
   washoi_prepare || result=$?
   [[ $result != 75 ]] || exit 0
   [[ $result == 0 ]] || die "workspace preparation failed"
-  ensure_deps "$d"
+  ensure_deps "$d" no-scripts
 }
 
 deploy_engine_docs() {

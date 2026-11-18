@@ -146,6 +146,15 @@ checkout has none. `deploy-eu.sh` itself is still installed as
 7. Verify game HTTP, lobby upgrade, representative media, account continuity
    and a real match before considering the application release deployed.
 
+Dependencies of the engine checkout are installed with
+`npm ci --ignore-scripts`, then the repository's own `postinstall` (it copies
+the Havok physics wasm). No package's install script runs on a host that holds
+the player database and keys; none is needed for the server and client builds
+(esbuild and sharp load their prebuilt platform packages; Electron is for
+desktop builds only). The site and studio checkouts on EU still install with
+scripts. The hosts run an installed copy of `deploy-eu.sh` / `deploy-us.sh`:
+reinstall it after this changes.
+
 The surface/staging fingerprint hashes both revision IDs. A game-only or
 engine-only revision change therefore invalidates the relevant build state.
 `checkout-pair.json` records the fetched pair under `.deploy-state`.

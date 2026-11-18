@@ -26,7 +26,10 @@ if [[ ${1:-} != --force && ( $sha == "$active" || $sha == "$pending" ) ]]; then
 fi
 key=$(sha256sum package-lock.json | cut -d' ' -f1)
 if [[ ! -d node_modules || $(cat "$ROOT/.deploy-state/npm-lock.sha" 2>/dev/null || true) != "$key" ]]; then
-  ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund
+  # Dependencies' install scripts never run on this host, which holds the
+  # player database and keys; the repository's own postinstall does
+  npm ci --no-audit --no-fund --ignore-scripts
+  npm run --if-present postinstall
   printf '%s\n' "$key" >"$ROOT/.deploy-state/npm-lock.sha"
 fi
 [[ -L public/data && $(readlink -f public/data) == "$ROOT/assets/data" ]]

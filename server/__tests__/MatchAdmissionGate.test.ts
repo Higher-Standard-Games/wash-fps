@@ -81,6 +81,45 @@ describe("game-server match admission", () => {
     expect(server.getGametypeController().getMatchState().totalPlayers).toBe(1);
   });
 
+  it("names a watcher without a ticket Spectator and keeps it out of the match's chat", async () => {
+    const { manifest, tickets } = issueMatchAdmission("match-watch", [
+      { lobbyPlayerId: "p1", accountId: 12, name: "Verified Alice", team: "udon", isBot: false },
+    ]);
+    server = new GameServer(
+      {
+        port: 0,
+        serverName: "watch",
+        mapName: "test",
+        maxClients: 3,
+        tickRate: 125,
+        snapshotRate: 60,
+        certPath: "",
+        keyPath: "",
+        matchAdmission: manifest,
+      },
+      new TeamDeathmatch(),
+    );
+    await server.start();
+    const seated = await ProtocolTestClient.connect(server.getPort());
+    clients.push(seated);
+    seated.send(MessageCodec.encodeJoin("Verified Alice", false, tickets.get("p1")));
+    await seated.waitForType(MessageType.JoinAccept);
+    const watcher = await ProtocolTestClient.connect(server.getPort());
+    clients.push(watcher);
+    watcher.send(MessageCodec.encodeJoin("Verified Alice"));
+    const accept = MessageCodec.decodeJoinAccept(await watcher.waitForType(MessageType.JoinAccept));
+    const internals = server as unknown as {
+      clients: Map<string, { playerId: number; playerName: string }>;
+    };
+    const watcherId = Number(accept.playerId.replace("player_", ""));
+    const watcherClient = [...internals.clients.values()].find((client) => client.playerId === watcherId);
+    expect(watcherClient?.playerName).toMatch(/^Spectator \d+$/);
+
+    watcher.send(MessageCodec.encodeChat("I am Alice"));
+    const refusal = MessageCodec.decodeServerMessage(await watcher.waitForType(MessageType.ServerMessage));
+    expect(refusal.message).toBe("Only the match's players can chat here.");
+  });
+
   it("lets nobody but its ticket holders into a campaign match, and takes no drop-in seats", async () => {
     const { manifest, tickets } = issueMatchAdmission(
       "campaign-1",

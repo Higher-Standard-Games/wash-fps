@@ -2,6 +2,7 @@ import { writePreference } from "../../../engine/core/PreferenceStorage";
 import { InputSystem } from "../../../engine/input/InputSystem";
 import { raiseKey, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
+import privacy from "../PRIVACY.md?raw";
 import { DEFAULT_FPS_MOVEMENT_CONFIG } from "../simulation/MovementProfile";
 import terms from "../TERMS.md?raw";
 import { renderMarkdown } from "./credits/MarkdownLite";
@@ -15,7 +16,7 @@ import welcomeCSS from "./styles/LobbyWelcomeDialog.css?raw";
 export const WELCOME_PREFERENCE = "washoi.welcome.hideAutomatically";
 /** Holds the TERMS_VERSION the player agreed to. */
 export const TERMS_PREFERENCE = "washoi.terms.agreed";
-/** The terms' "Last Updated" date: new terms ask again. */
+/** The terms' "Last Updated" date: new terms ask again. The privacy notice is shown with them and changes with them. */
 export const TERMS_VERSION = /\*\*Last Updated:\*\*\s*(.+)/.exec(terms)?.[1].trim() ?? "";
 
 export function termsAgreed(): boolean {
@@ -176,8 +177,8 @@ export class LobbyWelcomeDialog {
     );
     const termsBox = el("div", "lobby-guide__terms");
     termsBox.tabIndex = 0;
-    termsBox.setAttribute("aria-label", "Terms of service");
-    termsBox.append(renderMarkdown(terms, { headingOffset: 2 }));
+    termsBox.setAttribute("aria-label", "Terms of service and privacy notice");
+    termsBox.append(renderMarkdown(terms, { headingOffset: 2 }), renderMarkdown(privacy, { headingOffset: 2 }));
     this.agree.type = "checkbox";
     this.agree.checked = this.agreed;
     this.agree.addEventListener("change", () => {

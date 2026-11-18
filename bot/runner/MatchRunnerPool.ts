@@ -10,6 +10,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { childProcessEnv } from "../../../../engine/server/ChildEnv";
 import type { BotReference } from "../../../../shared/ranking/BotReference";
 import type { BotOptions } from "../BotConfig";
 import type { MatchReport } from "../intel/IntelStore";
@@ -174,6 +175,8 @@ export class MatchRunnerPool {
     const child = spawn(this.command.file, [...this.command.args, "--server", serverUrl], {
       stdio: ["ignore", "inherit", "inherit", "ipc"],
       serialization: "advanced",
+      // It plays through a game server's tickets and talks to its parent over IPC: no secret of ours
+      env: childProcessEnv(process.env),
     });
     const runner: RunnerProcess = { child, serverUrl, bots: new Map(), pending: new Map(), closing: false };
     this.runners.set(serverUrl, runner);

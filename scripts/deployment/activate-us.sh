@@ -6,7 +6,9 @@ STATE="$ROOT/.deploy-state"
 exec 9<>"$STATE/deploy.lock"
 flock -n 9 || exit 0
 # A published update replaces the running version even with connected players.
-install -m 644 /dev/null "$ROOT/.maintenance"
+# As washoi, like the publication below: root writing into washoi's directory
+# would follow a link planted there
+sudo -u washoi install -m 644 /dev/null "$ROOT/.maintenance"
 trap 'rm -f "$ROOT/.maintenance"' EXIT
 sha=$(cat "$STATE/pending.sha")
 [[ $sha =~ ^[0-9a-f]{40}$ ]]

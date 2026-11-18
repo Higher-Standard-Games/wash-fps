@@ -1778,6 +1778,12 @@ export class GameServer {
     stamps.push(now);
     client.chatStamps = stamps;
     client.lastChatMs = now;
+    // A lobby match's chat is for its seats: a watcher without a ticket has no
+    // account, so nothing could mute or ban what it says
+    if (this.matchAdmission && client.accountId === undefined) {
+      conn.sendReliable(MessageCodec.encodeServerMessage("Only the match's players can chat here.", "error"));
+      return;
+    }
 
     // Invalid team-chat attempts share the chat budget too, bounding notice spam.
     if (teamOnly && (!this.gametypeController.getGametype().teamBased || (team !== "udon" && team !== "soba"))) {
@@ -2010,7 +2016,11 @@ export class GameServer {
         connection: conn,
         playerId: pid,
         entityId: eid,
-        playerName: filterPlayerName(grant?.name ?? (playerName || `Player ${pid}`)),
+        // In a lobby match only a ticket names a player: a watcher without one
+        // could otherwise pose as anyone, and no account answers for it
+        playerName: filterPlayerName(
+          grant?.name ?? (this.matchAdmission ? `Spectator ${pid}` : playerName || `Player ${pid}`),
+        ),
         accountId: grant?.accountId,
         seatTeam: grant?.team,
         preGameAdmissionGrant: grant ?? undefined,
