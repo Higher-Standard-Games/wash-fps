@@ -58,6 +58,45 @@ function fire(entityId: string, x: number): Events[number] {
 }
 
 describe("positional events and what a client can perceive", () => {
+  it("withholds a far, unseen beam (its origin is the shooter) and impact, but not one's own or a visible beam", () => {
+    const { filter } = setup((from, to) => from === to);
+    const beam = (type: "voltaic_beam" | "electro_rail", entityId: string, x: number, endX: number) =>
+      ({
+        type,
+        entityId,
+        originX: x,
+        originY: 0,
+        originZ: 0,
+        dirX: 1,
+        dirY: 0,
+        dirZ: 0,
+        endX,
+        endY: 0,
+        endZ: 0,
+        normalX: 0,
+        normalY: 0,
+        normalZ: 1,
+      }) as Events[number];
+    const impact = (x: number) =>
+      ({
+        type: "projectile_impact",
+        defId: "rocket",
+        x,
+        y: 0,
+        z: 0,
+        normalX: 0,
+        normalY: 0,
+        normalZ: 1,
+      }) as Events[number];
+    const far = HEARING_RADIUS + 5000;
+    expect(filter([beam("voltaic_beam", "player_99", far, far + 500)])).toEqual([]);
+    expect(filter([beam("electro_rail", "player_99", far, far + 500)])).toEqual([]);
+    expect(filter([impact(far)])).toEqual([]);
+    expect(filter([beam("electro_rail", "player_10", far, far + 500)])).toHaveLength(1);
+    expect(filter([beam("voltaic_beam", "player_99", far, 100)])).toHaveLength(1);
+    expect(filter([impact(100)])).toHaveLength(1);
+  });
+
   const far = HEARING_RADIUS + 5000;
 
   it("drops gunfire out of view and out of earshot", () => {

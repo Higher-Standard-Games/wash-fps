@@ -63,9 +63,9 @@ function healthAudienceOf(state: GameState): { teamBased: boolean; teamOf: Map<s
 }
 
 /**
- * Whether a client may receive a positional one-shot event: gunfire, a hit or
- * a pickup it involves, or one where it could see or hear it. Everything else
- * passes unchanged.
+ * Whether a client may receive a positional one-shot event: gunfire, a beam,
+ * a hit or a pickup it involves, or one where it could see or hear it; an
+ * impact it could see or hear. Everything else passes unchanged.
  */
 function perceivable(
   event: SnapshotEvent,
@@ -80,6 +80,16 @@ function perceivable(
     case "item_pickup":
       // The picker arrives as a bare entity id (BotPerception pickerKey)
       return toClientKey(String(event.entityId)) === own || perceives(event.x, event.y, event.z);
+    case "voltaic_beam":
+    case "electro_rail":
+      // The origin is the shooter's position: either end in view or earshot shows the beam
+      return (
+        event.entityId === own ||
+        perceives(event.originX, event.originY, event.originZ) ||
+        perceives(event.endX, event.endY, event.endZ)
+      );
+    case "projectile_impact":
+      return perceives(event.x, event.y, event.z);
     default:
       return true;
   }
