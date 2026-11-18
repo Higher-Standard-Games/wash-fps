@@ -1265,7 +1265,7 @@ export class GameServer {
       const acc = this.weaponSystem.getAccuracy(client.entityId);
       const accStr = acc.shots >= 30 ? `${((acc.hits / acc.shots) * 100).toFixed(1)}%` : "n/a";
       const hsStr = acc.hits >= 10 ? `${((acc.headshots / acc.hits) * 100).toFixed(1)}%` : "n/a";
-      // Impossible-input counters (WO-AC2): near-zero for honest clients. rejected/
+      // Impossible-input counters: near-zero for honest clients. rejected/
       // clamped from the sanitizer (Telemetry), tripwire from the physics subsystem.
       const tripwire = this.physicsSystem.getTripwireHits(client.entityId as number);
       console.log(
@@ -2397,7 +2397,7 @@ export class GameServer {
    * acked: it held that one when it sent this command, so claiming an older
    * view only buys a deeper rewind to pick the best of (backtracking). The
    * slack covers a client that acks on its network thread before its game loop
-   * takes the snapshot, at 20 FPS. Each clamp is counted (WO-AC2): an honest
+   * takes the snapshot, at 20 FPS. Each clamp is counted: an honest
    * client only trips it across a long hitch.
    */
   private boundViewTick(client: ClientInfo, viewTick: number): number {
@@ -2437,7 +2437,7 @@ export class GameServer {
 
     const clean = sanitizeCommand(command);
     if (!clean) {
-      // Non-finite usercmd — a hard contract violation (WO-AC2). Count + drop.
+      // Non-finite usercmd — a hard contract violation. Count + drop.
       this.telemetry.recordViolation(client.playerId, "rejected");
       client.lastInputSeq = seq;
       return;

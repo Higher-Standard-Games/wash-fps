@@ -234,7 +234,7 @@ export class WeaponSystem extends Subsystem {
    */
   private accuracy: Map<EntityId, { shots: number; hits: number; headshots: number }> = new Map();
   /** Current sim tick, captured each update() — seeds deterministic RNG for drop
-   *  scatter / projectile spread so the sim is reproducible for demo re-sim (R3). */
+   *  scatter / projectile spread so the sim is reproducible for demo re-sim. */
   private currentTick = 0;
   private nextProjectileId: number = 10000;
   private pendingDamage: DamageEvent[] = [];
@@ -784,7 +784,7 @@ export class WeaponSystem extends Subsystem {
     const droppedAmmo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
     const pos = position;
     if (this.droppedWeaponSystem && pos) {
-      // Deterministic toss, seeded from tick+entity so demo re-sim reproduces it (R3).
+      // Deterministic toss, seeded from tick+entity so demo re-sim reproduces it.
       const rng = rngFrom(this.currentTick, entityId as number, 1);
       const angle = rng() * Math.PI * 2;
       const hSpeed = 80 + rng() * 60; // 80-140 horizontal
@@ -868,7 +868,7 @@ export class WeaponSystem extends Subsystem {
       const playerAmmo = this.ammoTotal(state.ammo.get(weaponId));
       // Cap dropped ammo at pickupAmmo (one clip worth)
       const ammo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
-      // Deterministic death scatter (seeded from tick+entity+slot, R3): the
+      // Deterministic death scatter (seeded from tick+entity+slot): the
       // weapons spread evenly round a heading of their own each death.
       const rng = rngFrom(this.currentTick, eId as number, i);
       const angle = scatter + (i / toDrop.length) * Math.PI * 2 + rng() * 0.5;

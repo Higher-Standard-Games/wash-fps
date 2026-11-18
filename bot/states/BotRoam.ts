@@ -264,11 +264,9 @@ export class BotRoam {
       this.host.life.activeItemGoal = goal;
       return this.host.navigateGoal(state, goal, true);
     }
-    // Scored choice first: value, denial, route and danger decide which item,
-    // instead of the fixed weapon > health > armor > ammo ordering below (which
-    // took the nearest of whichever type came first, so a 5 HP bubble could
-    // outrank Red Armor). Falls through to the legacy path when disabled or
-    // when nothing scores.
+    // Scored choice first: value, denial, route and danger decide which item.
+    // When scoring is off or nothing scores, the fixed weapon > health > armor
+    // > ammo order below picks the nearest of the first type found.
     const choice = this.host.selectItemGoal(state);
     // Only a DIRECTIVE goal holds on arrival. An item goal has to be touched,
     // and a bot that stops next to a Red Armor never picks it up.
