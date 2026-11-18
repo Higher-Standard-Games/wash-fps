@@ -84,6 +84,13 @@ at start to offer an update. The release workflow creates drafts; publishing
 a draft on GitHub is what ships it, at the next deploy run. The newest three
 versions are kept; the site's own publication leaves `client/` alone.
 
+Each package's entry in `latest.json` carries `sig`, the release workflow's
+Ed25519 signature from the package's `<name>.sig` asset. The game updates itself
+only to a package whose signature matches a key built into it, so a changed
+file or index on this server cannot ship a fake update. A release without
+`.sig` assets is still published for download, but installed games will not
+update themselves to it.
+
 The server reads the release with a fine-grained token that has only
 **Contents: read** on that one repository, in
 `/srv/washoi/env/client-release.token` (owner `washoi`, mode `0600`). Without

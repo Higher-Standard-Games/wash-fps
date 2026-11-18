@@ -11,8 +11,9 @@ release() { # release <tag> <asset names...>
   local tag="$1"; shift
   local assets="[]" n
   for n in "$@"; do
-    printf '%s' "$n" >"$scratch/assets/$n"
-    assets=$(jq -c --arg n "$n" --arg u "file://$scratch/assets/$n" --argjson s "${#n}" \
+    # A .sig is a signature's 64 bytes.
+    if [[ "$n" == *.sig ]]; then head -c 64 /dev/zero >"$scratch/assets/$n"; else printf '%s' "$n" >"$scratch/assets/$n"; fi
+    assets=$(jq -c --arg n "$n" --arg u "file://$scratch/assets/$n" --argjson s "$(stat -c %s "$scratch/assets/$n")" \
       '. + [{name:$n, url:$u, size:$s}]' <<<"$assets")
   done
   jq -n --arg t "$tag" --argjson a "$assets" '{tag_name:$t, published_at:"2026-11-03T00:00:00Z", assets:$a}' \
@@ -25,7 +26,7 @@ washoi_client_publish "file://$api" o/r "$scratch/none" "$scratch/client" x "$sc
 [[ ! -e "$scratch/client" ]]
 
 release v1.2.0 washoi-1.2.0-linux-x86_64.tar.gz washoi-1.2.0-windows-x86_64.zip washoi-1.2.0-macos-aarch64.zip \
-  washoi-1.2.0-windows-x86_64-setup.exe washoi-1.2.0-linux-x86_64-setup.exe \
+  washoi-1.2.0-windows-x86_64-setup.exe washoi-1.2.0-windows-x86_64-setup.exe.sig washoi-1.2.0-linux-x86_64-setup.exe \
   washoi-1.2.0-linux-x86_64.AppImage washoi-1.2.0-windows-x86_64.AppImage \
   notes.txt washoi-1.1.0-linux-x86_64.tar.gz
 publish
@@ -38,6 +39,11 @@ jq -e '[.files[] | select(.platform == "windows-x86_64") | .name] | sort
 jq -e '.files[] | select(.platform == "macos-aarch64")
   | .url == "https://washoi.net/client/1.2.0/washoi-1.2.0-macos-aarch64.zip"' "$scratch/client/latest.json" >/dev/null
 [[ ! -e "$scratch/client/1.2.0/notes.txt" ]]
+# The installer carries its signature; a package without a .sig has none.
+jq -e '.files[] | select(.name == "washoi-1.2.0-windows-x86_64-setup.exe")
+  | .sig == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="' "$scratch/client/latest.json" >/dev/null
+jq -e '.files[] | select(.name == "washoi-1.2.0-windows-x86_64.zip") | has("sig") | not' "$scratch/client/latest.json" >/dev/null
+[[ -z "$(find "$scratch/client/1.2.0" -name '*.sig')" ]]
 [[ "$(sha256sum <"$scratch/client/1.2.0/washoi-1.2.0-windows-x86_64.zip" | cut -d' ' -f1)" == \
    "$(jq -r '.files[] | select(.name == "washoi-1.2.0-windows-x86_64.zip") | .sha256' "$scratch/client/latest.json")" ]]
 
