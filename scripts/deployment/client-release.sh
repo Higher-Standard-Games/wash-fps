@@ -16,14 +16,17 @@
 #             the installed game downloads and runs to update itself
 #   <version>/washoi-<version>-linux-<arch>.AppImage     the AppImage, which
 #             replaces itself with the newer one
-#   latest.json   {"version","tag","publishedAt","files":[{platform,name,url,size,sha256}]}
+#   latest.json   {"version","tag","publishedAt","files":[{platform,name,url,size,sha256,sig}]}
+#                 sig: the release workflow's Ed25519 signature on the package
+#                 (its <name>.sig asset, base64), which the game requires
+#                 before it updates itself; left out when the release has none
 # The newest three versions are kept; latest.json is replaced last, by rename.
 
 # washoi_client_publish <api-base> <owner/repo> <token-file> <dest-dir> <public-url> <state-file>
 #   0 published or unchanged; 1 failed (the previous release stays served).
 washoi_client_publish() {
   local api="$1" repo="$2" token_file="$3" dest="$4" public="$5" state="$6"
-  local token release tag version stage assets name platform url size sha files
+  local token release tag version stage assets name platform url size sha sig sig_url files
   if [[ ! -s "$token_file" ]]; then
     echo "client: no token at $token_file; skipped"
     return 0
@@ -74,9 +77,24 @@ washoi_client_publish() {
       return 1
     fi
     sha="$(sha256sum "$stage/$name" | cut -d' ' -f1)"
+    # The signature the release workflow made on the package, if any.
+    sig=""
+    sig_url="$(jq -r --arg n "$name.sig" '.assets[] | select(.name == $n) | .url' <<<"$release" | head -1)"
+    if [[ -n "$sig_url" ]]; then
+      if ! curl -fsSL --max-time 60 \
+        -H "Authorization: Bearer $token" -H "Accept: application/octet-stream" \
+        -o "$stage/.$name.sig" "$sig_url" || [[ "$(stat -c %s "$stage/.$name.sig")" != 64 ]]; then
+        echo "client: $name.sig could not be fetched or is not a signature"
+        rm -rf "$stage"
+        return 1
+      fi
+      sig="$(base64 -w0 <"$stage/.$name.sig")"
+      rm -f "$stage/.$name.sig"
+    fi
     platform="$(sed -E 's/^.*-((linux|macos|windows)-(x86_64|aarch64))(-setup\.exe|\.AppImage|\.zip|\.tar\.gz)$/\1/' <<<"$name")"
     files="$(jq -c --arg p "$platform" --arg n "$name" --arg u "$public/$version/$name" \
-      --argjson s "$size" --arg h "$sha" '. + [{platform:$p, name:$n, url:$u, size:$s, sha256:$h}]' <<<"$files")"
+      --argjson s "$size" --arg h "$sha" --arg g "$sig" \
+      '. + [{platform:$p, name:$n, url:$u, size:$s, sha256:$h} + (if $g == "" then {} else {sig:$g} end)]' <<<"$files")"
   done <<<"$assets"
   rm -rf "${dest:?}/$version"
   mv "$stage" "$dest/$version"
