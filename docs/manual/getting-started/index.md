@@ -45,7 +45,7 @@ PK3 files (maps, textures, models, sounds) are **not** in this repo or the engin
 This directory is gitignored — each developer downloads or builds their own game data.
 
 Map loading uses the PK3 index rather than searching for loose BSP files. After
-adding packages, run `npm run tools:pk3-index`; restart the lobby so its installed
+adding packages, run `npm run tools:pk3-index` at the SHAG root; restart the lobby so its installed
 map list is refreshed. See [Maps](../gametypes/maps.md).
 
 ## First Run

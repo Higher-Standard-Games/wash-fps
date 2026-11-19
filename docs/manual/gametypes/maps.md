@@ -11,7 +11,7 @@ A map appears in a mode's room vote only when **both** are true:
    `map_<name>_<revision>.pk3` packages also count for the base map name when
    the numeric revision has at least five digits.
 
-Each room draws three maps at random from the pool for the vote, so a mode with fewer than three maps offers fewer. If `public/data/` has no map files at all (a development checkout without game data), the lobby skips the disk check and offers every listed map. Amphi is the exception: it is only offered when its own map PK3s are installed.
+Each room draws maps at random from the pool for the vote: six when the pool has six or more, otherwise three, so a mode with fewer than three maps offers them all. If `public/data/` has no map files at all (a development checkout without game data), the lobby skips the disk check and offers every listed map. Amphi is the exception: it is only offered when its own map PK3s are installed.
 
 | Map | Name | Modes |
 |-----|------|-------|
@@ -52,7 +52,7 @@ spawns; the filename does not have to start with `wbomb`. See
 
 ## Adding a map
 
-1. Put the map's `map_<name>.pk3` in `public/data/` in the engine repo, and rebuild the manifest (`npm run tools:manifest`).
+1. Put the map's `map_<name>.pk3` in `public/data/` in the engine repo, and rebuild the manifest (`npm run tools:manifest` at the SHAG root).
 2. Add an entry to `config/maps.json` with a `displayName` and the release `gametypes` it should be offered for (`duel`, `amphi`, `ffa`, `snd`).
 3. Restart the lobby server. The map list is read once at startup.
 

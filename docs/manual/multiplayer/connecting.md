@@ -56,11 +56,18 @@ the next round.
 
 | Action | How it resolves |
 |--------|-----------------|
-| **Vote map** | Three maps are drawn from the gametype's pool; most votes wins |
+| **Vote map** | Six maps are drawn from the gametype's pool (three from a smaller pool); most votes wins |
 | **Switch side** | Immediate, no vote — it affects only you and it is reversible |
 | **Vote shuffle** | Randomises the teams; needs a majority (`ceil(players / 2)`) |
 | **Add AI player** | In any waiting room; the room stays public or private as it was. Fills a seat with a Hard bot, or Insane when your rating is strong. The arrow beside it picks Easy, Medium, Hard or Insane instead |
 | **Ready** | Toggles your ready state |
+
+A public room nobody else joins plays against AI players. It looks for people
+for 90 seconds, counting down the last 30 under the waiting clock ("Inviting AI
+opponent in 0:30"), then invites a bot matched to your rating; in FFA and S&D
+another follows every 5 seconds while seats are open, so a person can still
+take one. A private room waits for the people you invite. A match with a bot in
+it is rated in the private pool, wherever it was played.
 
 On a team gametype you are auto-assigned to the smaller side on join. Switching
 sides needs no vote because it affects one player and is reversible — and

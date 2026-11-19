@@ -151,7 +151,7 @@ match continues while its menu is open.
 ## Gameplay
 
 - **Team colours.** The colour of **your side** and of **enemies** (anyone you can shoot), each with its own outline colour. In free-for-all each opponent instead wears a colour of their own from the same palette, handed out by the server and kept for the match, so you can tell them apart and everyone sees the same colours; an opponent given your side's colour wears an unused one on your screen instead. A colour already used by the other side is refused. Cvars: `cl_team_ally_color`, `cl_team_enemy_color`, `cl_team_ffa_color` and their `_outline_color` pairs.
-- **Outline** (`cl_player_outline`, `cl_player_outline_size`): Off, Thin (the default) or Bold, which is twice as thick.
+- **Outline** (`cl_player_outline`, `cl_player_outline_size`): Off, Thin (size 19, the default) or Bold (size 25).
 - **Brighter players** (`cl_player_tint`, `cl_player_fullbright`, `cl_player_fullbright_intensity`): Off keeps original model colours with a coloured outline. Tint applies the chosen team colour; Some and Lots also brighten the body for visibility in dark corners. Off is the default.
 - A preview on a real map shows all of the above as you change them.
 - **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are size 32 and white, flashing red on a hit. An empty weapon with no reserve shows a red X until ammunition is available. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.

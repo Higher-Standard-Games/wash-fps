@@ -8,10 +8,10 @@ The gold rail on the left is the whole menu:
 
 | Key | What it opens |
 |-----|---------------|
-| **Quick play** | Straight into a match: a private FFA room against four bots on a random map; press Ready to start (pressed while the bots are still coming, it waits for the last of them) |
-| **Play** | The mode stage: Duel, Amphi, FFA, S&D. Pick one and find a room. FFA rooms hold 8 players (it starts from 4), S&D rooms 10 (it starts from 2), Duel and Amphi 2 |
-| **Campaign** | The story operations against bots, unlocked one by one; see [Campaign](../player/campaign.md) |
-| **Leaderboard** | Skill rankings per mode, counting every match: public, private and against bots |
+| **Quick play** | Straight into a match: a private FFA room against four bots on a random map; press Ready to start (pressed while the bots are still coming, it waits for the last of them). While that room is open, Quick play leads back to it |
+| **Campaign** | The story operations against bots, unlocked one by one, and the campaign's own leaderboard; see [Campaign](../player/campaign.md) |
+| **Play online** | The mode stage: Duel, Amphi, FFA, S&D. Pick one and find a room. FFA rooms hold 8 players (it starts from 4), S&D rooms 10 (it starts from 2), Duel and Amphi 2. While you are in a room the key reads **Lobby**, with a radar sweeping on it, and leads back to the room: it keeps your seat while other pages are open |
+| **Leaderboard** | Skill rankings: **All** (each player at their best mode) and each mode, counting every match: public, private and against bots |
 | **Demos** | Replays of recorded matches; see [Demos](./demos.md) |
 | **Profile** | Your account and your ranked record |
 | **Settings** | The settings screen; see [HUD → Settings](../player/hud.md#settings-overlay) |

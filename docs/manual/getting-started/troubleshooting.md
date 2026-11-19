@@ -43,7 +43,7 @@ A mode with no maps is missing or fails to start. The lobby offers a map only wh
 
 ## Maps, textures or models don't load
 
-Game data is not in either repository. PK3 files (maps, textures, models, sounds) go in `public/data/` in the engine repo, which is gitignored, so every developer sets up their own copy. After adding or changing PK3s, rebuild the manifests:
+Game data is not in either repository. PK3 files (maps, textures, models, sounds) go in `public/data/` in the engine repo, which is gitignored, so every developer sets up their own copy. After adding or changing PK3s, rebuild the manifests at the SHAG root:
 
 ```bash
 npm run tools:manifest
