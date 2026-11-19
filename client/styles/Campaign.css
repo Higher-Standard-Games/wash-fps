@@ -485,7 +485,7 @@
 
 /* A card that reads its story when clicked */
 .campaign-card__art--readable {
-  cursor: zoom-in;
+  cursor: var(--ui-cursor-hover, zoom-in);
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
@@ -671,7 +671,7 @@
   width: min(100%, 1560px);
   max-width: calc(46% * 1.6);
   perspective: 2400px;
-  cursor: zoom-in;
+  cursor: var(--ui-cursor-hover, zoom-in);
 }
 
 /* The comic's own slow turn, as before a match: a photo held in the hand */
@@ -761,7 +761,7 @@
   overflow: hidden;
   background: #000;
   opacity: 0;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   outline: none;
   transition: opacity 450ms ease;
   user-select: none;
@@ -960,7 +960,7 @@
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: hsl(45 100% 95%);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 
 .campaign-cut__back:is(:hover, :focus-visible) {
@@ -1008,7 +1008,7 @@
   background: var(--campaign-gold);
   box-shadow: 4px 5px 0 hsl(250 50% 3%);
   clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 
 .campaign__board-close:is(:hover, :focus-visible) {

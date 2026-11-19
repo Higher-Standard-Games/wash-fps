@@ -1,5 +1,6 @@
 import "../../../../style.css";
 import "../../../../engine/ui/styles/WashikiFonts.css";
+import "../styles/Cursors.css";
 import "../styles/LobbyWelcomeDialog.css";
 import "./ExportVideo.css";
 import { background } from "../../../../engine/core/AsyncErrors";

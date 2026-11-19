@@ -6,7 +6,7 @@
 .lobby-guide-back {
   border: 0;
   border-radius: 4px;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   color: #fff6df;
   font: 800 17px var(--w-font-display, sans-serif);
   background: linear-gradient(160deg, #39354b, #191626);
@@ -122,7 +122,7 @@
   margin-left: calc(var(--chevron) * -0.5);
   padding: 10px calc(var(--chevron) + 14px);
   border: 0;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   color: var(--ink);
   font: 900 clamp(15px, 1.25vw, 20px) / 1.1 var(--display);
   letter-spacing: 0.07em;
@@ -189,7 +189,7 @@
 }
 /* Waiting on the terms: the later pages are locked */
 .lobby-guide__tab:disabled {
-  cursor: not-allowed;
+  cursor: var(--ui-cursor-disabled, not-allowed);
 }
 .lobby-guide__tab:disabled > * {
   opacity: 0.45;
@@ -311,7 +311,7 @@
   align-items: center;
   gap: 14px;
   font-size: 20px;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 .lobby-guide__preference strong {
   font-weight: 700;
@@ -349,7 +349,7 @@
   --kh: clamp(36px, 3.4vw, 46px);
 }
 .lobby-guide__preview .fps-set-cap {
-  cursor: default;
+  cursor: var(--ui-cursor, default);
   pointer-events: none;
 }
 .lobby-guide__preview .is-muted {
@@ -358,7 +358,7 @@
 }
 .lobby-guide__preview .fps-set-mzone,
 .lobby-guide__preview .fps-set-mlabel {
-  cursor: default;
+  cursor: var(--ui-cursor, default);
   pointer-events: none;
 }
 .lobby-guide__preview .fps-set-mouse-wrap {

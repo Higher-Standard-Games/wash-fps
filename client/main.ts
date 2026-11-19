@@ -7,6 +7,7 @@
 import { devLog } from "../../../engine/core/DevLog";
 import "../../../style.css";
 import "../../../engine/ui/styles/WashikiFonts.css"; // Washiki fonts available at startup (before HUD)
+import "./styles/Cursors.css";
 
 import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine";

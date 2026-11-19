@@ -92,7 +92,7 @@
   box-shadow:
     var(--l-shadow),
     inset 5px 0 0 hsla(180, 100%, 50%, 0.4);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   transition:
     transform 0.14s ease,
     box-shadow 0.14s ease,
@@ -875,7 +875,7 @@
   font: 900 14px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   box-shadow:
     inset 0 -4px 0 var(--m),
     0 4px 0 hsl(250 40% 8%),
@@ -1376,7 +1376,7 @@
 }
 
 .lobby-chat__input:disabled {
-  cursor: not-allowed;
+  cursor: var(--ui-cursor-disabled, not-allowed);
   opacity: 0.55;
 }
 
@@ -1620,7 +1620,7 @@
   display: inline-flex;
 }
 .lobby-downloads > summary {
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   list-style: none;
   white-space: nowrap;
 }
@@ -1682,7 +1682,7 @@
   align-items: center;
   gap: 8px;
   font: 700 15px / 1.2 var(--body);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 .lobby-downloads__pause input {
   width: 22px;
@@ -1690,7 +1690,7 @@
   margin: 0;
   flex-shrink: 0;
   accent-color: var(--ink);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 .lobby-downloads .lobby-downloads__retry {
   width: auto;

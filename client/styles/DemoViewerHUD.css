@@ -58,7 +58,7 @@
 .dvh-timeline {
   position: relative;
   height: 6px;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   background: hsla(42, 95%, 92%, 0.14);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
   transition: height 0.15s ease;
@@ -112,7 +112,7 @@
   border: 0;
   border-radius: 1px;
   transform: translateX(-50%) skewX(-12deg);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   transition: transform 0.12s ease;
 }
 
@@ -351,7 +351,7 @@
   padding-top: max(calc(8px * var(--ui-scale, 1)), env(safe-area-inset-top));
   padding-left: max(calc(14px * var(--ui-scale, 1)), env(safe-area-inset-left));
   border: 0;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   color: #171326;
   background: linear-gradient(240deg, #ffc52c, #efa600);
   clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
@@ -492,7 +492,7 @@ body.dvh-clean canvas {
 }
 
 body.dvh-clean .dvh-end.is-shown {
-  cursor: auto;
+  cursor: var(--ui-cursor, auto);
 }
 
 /* --- A reel's title card, over its opening black: who against whom, cut like

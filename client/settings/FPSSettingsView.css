@@ -303,7 +303,7 @@
   background: var(--face);
   color: var(--text);
   text-align: left;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   container-type: inline-size;
   box-shadow:
     0 calc(5px - var(--lift)) 0 var(--side),
@@ -407,7 +407,7 @@
   --face: linear-gradient(180deg, hsl(250 26% 22%), hsl(250 30% 15%));
   --side: hsl(250 36% 9%);
   --text: var(--c);
-  cursor: help;
+  cursor: var(--ui-cursor, help);
   box-shadow:
     0 5px 0 var(--side),
     0 8px 10px hsla(250, 70%, 2%, 0.55),
@@ -472,7 +472,7 @@
   padding: 0;
   border: 0;
   background: var(--face);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   transition:
     background 0.15s ease,
     opacity 0.2s ease,
@@ -549,7 +549,7 @@
   background: none;
   color: inherit;
   text-align: inherit;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   transition:
     background 0.15s ease,
     opacity 0.2s ease;
@@ -621,7 +621,7 @@
   color: var(--cream);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   transition:
     background 0.12s ease,
     border-color 0.12s ease;
@@ -693,7 +693,7 @@
   background: hsl(356 88% 56%);
   color: var(--cream);
   font: 900 11px / 1 var(--body);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   box-shadow: 0 0 0 2px hsl(250 42% 9%);
 }
 
@@ -719,7 +719,7 @@
 }
 
 .fps-set-act.is-fixed {
-  cursor: default;
+  cursor: var(--ui-cursor, default);
 }
 
 .fps-set-act.is-fixed:hover {
@@ -834,7 +834,7 @@
   background: hsla(250, 45%, 8%, 0.12);
   color: var(--ink);
   font: 900 22px / 1 var(--body);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 
 .fps-set-pop__close:is(:hover, :focus-visible) {
@@ -891,7 +891,7 @@
   font: 700 16px / 1 var(--body);
   letter-spacing: 0.03em;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   box-shadow:
     inset 5px 0 0 var(--c),
     0 4px 0 hsl(33 45% 40%),
@@ -1068,7 +1068,7 @@
   border: 0;
   border-radius: 3px;
   padding: 7px 12px;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   color: var(--ink);
   font: 800 12px / 1 var(--display);
   letter-spacing: 0.08em;
@@ -1116,7 +1116,7 @@
   height: 26px;
   margin: 0;
   background: none;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   appearance: none;
   -webkit-appearance: none;
 }
@@ -1208,7 +1208,7 @@
   font: 800 13px / 1 var(--display);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   box-shadow:
     0 4px 0 hsl(250 40% 8%),
     inset 0 1.5px 0 hsla(0, 0%, 100%, 0.1);
@@ -1269,7 +1269,7 @@
   border: 1px solid #635675;
   border-radius: 2px;
   font: 700 17px / 1.2 var(--body);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   color-scheme: dark;
 }
 
@@ -1293,7 +1293,7 @@
 }
 
 .fps-set-menu__button:disabled {
-  cursor: default;
+  cursor: var(--ui-cursor, default);
   opacity: 0.5;
 }
 
@@ -1349,7 +1349,7 @@
 .fps-set-menu__option {
   position: relative;
   padding: 8px 12px 8px 28px;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   white-space: nowrap;
 }
 
@@ -1385,7 +1385,7 @@
   border: 0;
   border-radius: 3px;
   background: var(--sw);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   box-shadow:
     0 4px 0 color-mix(in srgb, var(--sw) 40%, hsl(250 50% 5%)),
     0 0 14px -2px var(--sw);
@@ -1425,7 +1425,7 @@
 
 .fps-set-sw:disabled {
   opacity: 0.22;
-  cursor: not-allowed;
+  cursor: var(--ui-cursor-disabled, not-allowed);
   box-shadow: none;
 }
 

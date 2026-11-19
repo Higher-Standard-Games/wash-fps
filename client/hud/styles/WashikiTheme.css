@@ -325,7 +325,7 @@
   box-shadow:
     4px 5px 0 hsla(250, 45%, 4%, 0.4),
     inset 5px 0 0 hsla(180, 100%, 50%, 0.44);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   transition:
     transform 0.16s ease,
     box-shadow 0.16s ease,
@@ -1060,7 +1060,7 @@
     var(--w-shadow-print-sm);
   overflow: hidden;
   pointer-events: auto;
-  cursor: default;
+  cursor: var(--ui-cursor, default);
   transition:
     transform 0.16s ease,
     filter 0.16s ease,
@@ -2241,7 +2241,7 @@
 }
 
 .fps-spectator-bar-nav {
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   user-select: none;
 }
 
@@ -3340,7 +3340,7 @@ html[data-cl-hud="0"]
   justify-content: center;
   font-size: calc(16px * var(--ui-scale, 1));
   color: var(--w-text-muted);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   pointer-events: auto;
   border: 1px solid transparent;
   background: transparent;
@@ -3380,7 +3380,7 @@ html[data-cl-hud="0"]
   border: 1px solid hsla(180, 100%, 50%, 0.3);
   background: hsla(240, 15%, 10%, 0.6);
   color: var(--w-text);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   pointer-events: auto;
   transition: all 0.15s ease;
 }
@@ -4138,7 +4138,7 @@ html[data-cl-hud="0"]
   letter-spacing: 0.06em;
   text-align: left;
   color: var(--w-text);
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   pointer-events: auto;
   transition:
     transform 0.12s ease,

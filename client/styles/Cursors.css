@@ -1,0 +1,43 @@
+/*
+ * Washoi mouse cursors: gold gradient with a black outline, a little larger
+ * than the system arrow.
+ *
+ * The UI stylesheets ask for `var(--ui-cursor-*, <system cursor>)`, so these
+ * tokens restyle every cursor in one place. Browsers drop a cursor larger
+ * than 32 px where it would cross the edge of the page; the 32 px copy of the
+ * same art is the next choice there, then the system cursor.
+ */
+
+:root {
+  --ui-cursor: url("./cursors/arrow-46.svg") 4 2, url("./cursors/arrow-32.svg") 3 2, default;
+  --ui-cursor-hover: url("./cursors/hand-46.svg") 17 1, url("./cursors/hand-32.svg") 12 1, pointer;
+  --ui-cursor-disabled: url("./cursors/disabled-46.svg") 4 2, url("./cursors/disabled-32.svg") 3 2, not-allowed;
+  --ui-cursor-text: url("./cursors/text-46.svg") 21 21, url("./cursors/text-32.svg") 15 15, text;
+}
+
+html {
+  cursor: var(--ui-cursor);
+}
+
+/* The page cursor inherits into text fields, which would show the arrow;
+   links get the system hand from the browser. Zero specificity, so a
+   component's own cursor rule still wins. */
+:where(
+  input:not(
+    [type="button"],
+    [type="submit"],
+    [type="checkbox"],
+    [type="radio"],
+    [type="range"],
+    [type="color"],
+    [type="file"]
+  ),
+  textarea,
+  [contenteditable="true"]
+) {
+  cursor: var(--ui-cursor-text);
+}
+
+:where(a:any-link) {
+  cursor: var(--ui-cursor-hover);
+}

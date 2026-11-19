@@ -72,7 +72,7 @@
   color: #fff;
   font: inherit;
   font-size: 15px;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 .fps-pad-cap.is-focus,
 .fps-pad-cap.is-pressed {
@@ -100,7 +100,7 @@
   border: 0;
   background: transparent;
   color: inherit;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   font-size: 22px;
 }
 .fps-pad-pop {

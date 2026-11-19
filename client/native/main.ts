@@ -10,6 +10,7 @@
 
 import "../../../../style.css";
 import "../../../../engine/ui/styles/WashikiFonts.css";
+import "../styles/Cursors.css";
 import { registerEngineServices, ServiceLocator } from "../../../../engine/core";
 import { EngineVersion } from "../../../../engine/core/EngineVersion";
 import { GamePaths } from "../../../../engine/core/GamePaths";

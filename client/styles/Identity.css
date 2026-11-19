@@ -59,7 +59,7 @@
 }
 
 .identity-slot__input:disabled {
-  cursor: not-allowed;
+  cursor: var(--ui-cursor-disabled, not-allowed);
   opacity: 0.6;
 }
 
@@ -126,7 +126,7 @@
   display: flex;
   align-items: baseline;
   gap: 10px;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 
 .identity-agree input {
@@ -200,7 +200,7 @@
   color: var(--cream);
   background: hsla(276, 90%, 64%, 0.22);
   border: 0;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
 }
 
@@ -649,7 +649,7 @@
   border: 0;
   background: transparent;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
 }
 
 .profile-card__history-key:hover,

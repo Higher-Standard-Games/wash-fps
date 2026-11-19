@@ -599,7 +599,7 @@
   font: 800 12px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  cursor: pointer;
+  cursor: var(--ui-cursor-hover, pointer);
   box-shadow: 0 4px 0 hsl(250 40% 8%);
 }
 
