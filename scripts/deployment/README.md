@@ -172,7 +172,7 @@ texture archive are excluded from that copy. The canonical assets and live
 demos under `assets/data` remain in place. US retains its maintenance handshake
 gate during activation. Old staged builds are retained for rollback.
 
-## v1.0.0-beta.13 operator steps
+## v1.0.0-rc.1 operator steps
 
 Bots move from `washoi-bots` into the lobby (see [Bots](#bots)). The release
 works with the installed scripts and units unchanged: activation still
