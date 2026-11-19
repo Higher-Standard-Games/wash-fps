@@ -162,9 +162,19 @@
   clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
 }
 
+/* The name's column; the name inside takes the size that fits its length, down to 14px */
 .lb-plinth__name {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.lb-plinth__name-text {
+  --name-size: clamp(20px, 1.7vw, 30px);
+  display: block;
   overflow: hidden;
-  font: 900 clamp(20px, 1.7vw, 30px) / 1.05 var(--w-font-display, "Orbitron", monospace);
+  font:
+    900 max(14px, min(var(--name-size), calc(100cqi / (var(--name-length) * 0.86)))) / 1.05
+    var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -629,8 +639,8 @@
     font-size: clamp(40px, 5vw, 60px);
   }
 
-  .lb-plinth__name {
-    font-size: 17px;
+  .lb-plinth__name-text {
+    --name-size: 17px;
   }
 
   .lb-plinth__wins {

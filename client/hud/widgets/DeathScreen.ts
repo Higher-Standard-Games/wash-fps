@@ -4,6 +4,7 @@ import {
   presentationInterval,
   presentationNow,
 } from "../../../../../engine/core/PresentationTime";
+import { InputDevice } from "../../../../../engine/input/InputDevice";
 import { FPS, getActionKeyLabel } from "../../FPSActions";
 import type { KillFeedEntry } from "../../HUDState";
 import { MatchStateManager } from "../../MatchStateManager";
@@ -265,11 +266,13 @@ export class FPSDeathScreen implements FPSHudWidget {
       this.cardEl.dataset.next = "ready";
       this.nextLabelEl.textContent = "Ready";
       this.timerEl.style.display = "none";
-      // "PRESS [MOUSE1] TO RESPAWN" — the fire keybind rendered as a keycap.
+      // "PRESS [MOUSE1] TO RESPAWN": the fire keybind as a keycap. On a touch
+      // screen, the labelled JUMP button, which respawns as fire does.
+      const touch = InputDevice.getInstance().current === "touch";
       const keycap = document.createElement("span");
       keycap.className = "fps-keycap";
-      keycap.textContent = getActionKeyLabel(FPS.FIRE);
-      this.respawnEl.replaceChildren("PRESS ", keycap, " TO RESPAWN");
+      keycap.textContent = touch ? "JUMP" : getActionKeyLabel(FPS.FIRE);
+      this.respawnEl.replaceChildren(touch ? "TAP " : "PRESS ", keycap, " TO RESPAWN");
       this.respawnEl.style.display = "";
       this.stopCountdown();
     }

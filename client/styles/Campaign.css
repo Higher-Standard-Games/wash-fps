@@ -1110,3 +1110,38 @@
   font-style: italic;
   text-shadow: 0.06em 0.07em 0 hsl(322 95% 50% / 0.55);
 }
+
+/* A narrow window stacks the head: the title, the count, the opening, then the leaderboard key */
+@media (max-width: 900px) {
+  .campaign__head {
+    grid-template-areas:
+      "title"
+      "count"
+      "intro"
+      "board";
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    gap: 16px;
+  }
+
+  /* The pips take a line of their own when the count and its word fill the width */
+  .campaign__count {
+    flex-wrap: wrap;
+    max-width: 100%;
+    row-gap: 8px;
+  }
+
+  .campaign__count strong {
+    white-space: nowrap;
+  }
+
+  .campaign__ingress {
+    justify-self: stretch;
+    max-width: none;
+  }
+
+  .campaign__board-key {
+    align-self: start;
+    margin-right: 0;
+  }
+}

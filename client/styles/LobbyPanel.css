@@ -1477,14 +1477,24 @@
     padding: 0 12px;
   }
 
+  /* The four page keys two to a row, so each label is read whole */
   .lobby__rail-nav .lobby__rail-keys {
     flex-direction: row;
+    flex-wrap: wrap;
     gap: 8px;
   }
 
   .lobby__rail-nav .raised-key {
     flex: 1;
     min-width: 0;
+  }
+
+  .lobby__rail-keys > .raised-key {
+    flex: 1 1 calc(50% - 4px);
+  }
+
+  .lobby__rail-keys .raised-key__label {
+    font-size: clamp(13px, 4vw, 22px);
   }
 
   .lobby__rail-nav .raised-key__face {

@@ -429,7 +429,13 @@ export class LeaderboardView {
     // The rating, large; a provisional one is drawn fainter rather than labelled
     const rating = el("span", `lb-plinth__wins${entry.provisional ? " is-provisional" : ""}`, String(entry.rating));
     rating.title = entry.provisional ? `Rating ${entry.rating}, provisional` : `Rating ${entry.rating}`;
-    face.append(el("span", "lb-plinth__name", entry.name), rating, this.plinthRecord(entry));
+    // The name shrinks to fit its column (by its length, in the stylesheet) before it is cut short
+    const name = el("span", "lb-plinth__name");
+    const nameText = el("span", "lb-plinth__name-text", entry.name);
+    nameText.style.setProperty("--name-length", String(Math.max(6, [...entry.name].length)));
+    nameText.title = entry.name;
+    name.append(nameText);
+    face.append(name, rating, this.plinthRecord(entry));
     const side = el("div", "lb-plinth__side");
     side.setAttribute("aria-hidden", "true");
     plinth.append(side, face);
