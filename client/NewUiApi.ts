@@ -77,6 +77,24 @@ const OFFLINE: Record<PendingUiFeature, string> = {
   featuredDemos: "The lobby server is offline. Featured picks come back with it.",
 };
 
+/**
+ * A failed lobby request in words a player reads: the lobby's reply codes
+ * ("Leaderboard: rate_limited") and the client's timeouts are not for the page.
+ */
+export function requestFailure(error: unknown, what: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.endsWith("rate_limited")) return `Too many requests for ${what}. Try again in a minute.`;
+  if (/timed out/i.test(message))
+    return `The lobby server did not answer in time. ${capitalize(what)} come back on the next try.`;
+  if (/disconnected|offline/i.test(message))
+    return `The lobby server is offline. ${capitalize(what)} come back with it.`;
+  return `The lobby server could not read ${what}.`;
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Why a feature cannot be read: the lobby is not there, or it does not offer it. */
 function unavailable<T>(feature: PendingUiFeature, client: LobbyClient | null): UiResult<T> {
   return { status: "unavailable", reason: client?.connected ? UNAVAILABLE[feature] : OFFLINE[feature] };
@@ -252,7 +270,7 @@ export const newUiApi: NewUiApi = {
         },
       };
     } catch (error) {
-      return { status: "unavailable", reason: (error as Error).message };
+      return { status: "unavailable", reason: requestFailure(error, "the rankings") };
     }
   },
   async getFeaturedDemos(query) {
@@ -261,7 +279,7 @@ export const newUiApi: NewUiApi = {
       const { entries } = await featuredClient.requestFeaturedDemos(query);
       return { status: "ready", data: entries };
     } catch (error) {
-      return { status: "unavailable", reason: (error as Error).message };
+      return { status: "unavailable", reason: requestFailure(error, "featured picks") };
     }
   },
   async getCampaignBoard() {
@@ -277,7 +295,7 @@ export const newUiApi: NewUiApi = {
       const { missionCount, scorers, finishers, missions } = await campaignBoardClient.requestCampaignBoard();
       return { status: "ready", data: { missionCount, scorers, finishers, missions } };
     } catch (error) {
-      return { status: "unavailable", reason: (error as Error).message };
+      return { status: "unavailable", reason: requestFailure(error, "the campaign boards") };
     }
   },
 };

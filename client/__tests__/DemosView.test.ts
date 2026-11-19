@@ -196,6 +196,10 @@ describe("highlight reels", () => {
     ]);
     // Opening the menu closes the reel dialog
     expect(document.querySelector<HTMLElement>(".dm-reel")?.hidden).toBe(true);
+    // Leaving the page takes the menu with it
+    view.deactivate();
+    expect(document.querySelector(".dm-hl-menu")).toBeNull();
+    expect(arrows[1].getAttribute("aria-expanded")).toBe("false");
     view.destroy();
   });
 });

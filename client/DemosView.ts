@@ -338,6 +338,7 @@ export class DemosView {
     this.finishTransfer();
     this.transfer.hidden = true;
     this.transferAction.onclick = null;
+    this.closeHighlightMenu();
     this.closeReel();
   }
 

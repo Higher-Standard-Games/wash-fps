@@ -140,8 +140,14 @@ describe("the record card", () => {
   it("reports the refusal when nothing could be read", async () => {
     const view = mount(fakeClient(() => Promise.reject(new Error("Rankings timed out."))));
     await view.refreshRecord();
-    expect(status(view)).toBe("Rankings timed out.");
+    expect(status(view)).toBe("The lobby server did not answer in time. The rankings come back on the next try.");
     expect(rows(view)).toEqual([]);
+  });
+
+  it("puts the lobby's reply code in words", async () => {
+    const view = mount(fakeClient(() => Promise.reject(new Error("Leaderboard: rate_limited"))));
+    await view.refreshRecord();
+    expect(status(view)).toBe("Too many requests for the rankings. Try again in a minute.");
   });
   it("reads one Overall ranking, with no Public/Private switch", async () => {
     const client = fakeClient(() => ({ total: 0, localProcessing: { excluded: 1 } }) as never);
