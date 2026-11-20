@@ -117,7 +117,7 @@ export class LobbyWelcomeDialog {
     const content = el("div", "lobby-guide__content");
     // A hosted build shows the key in the session that made it, and only then
     this.keyToSave = keyToSaveNow();
-    const names = ["Terms of service", "Your keys", "Tip of the day", ...(this.keyToSave ? ["Save your account"] : [])];
+    const names = ["Terms of service", "Your keys", "Tip of the day", ...(this.keyToSave ? ["Your account"] : [])];
     this.names = names;
     names.forEach((name, index) => {
       // A wizard's steps: the number in its badge, then the name
@@ -259,7 +259,17 @@ export class LobbyWelcomeDialog {
 
   /** The player's key, to copy or save now: a hosted build keeps it only for this visit. */
   private buildKeyPage(panel: HTMLElement, key: string): void {
-    const shown = el("p", "lobby-guide__key", formatKey(key));
+    // Blurred until asked, as Profile's is, so a stream or a screenshot doesn't give it away
+    const plate = el("div", "lobby-guide__key lobby-guide__key--hidden");
+    const shown = el("span", "lobby-guide__key-text", formatKey(key));
+    const reveal = button("lobby-guide__key-reveal", "Show");
+    reveal.setAttribute("aria-pressed", "false");
+    reveal.addEventListener("click", () => {
+      const hidden = plate.classList.toggle("lobby-guide__key--hidden");
+      reveal.textContent = hidden ? "Show" : "Hide";
+      reveal.setAttribute("aria-pressed", String(!hidden));
+    });
+    plate.append(shown, reveal);
     const copy = raiseKey(button("lobby-guide__button"), { label: "Copy key", variants: ["cream", "inline"] });
     copy.addEventListener("click", async () => {
       setRaisedKeyText(copy, (await copyText(formatKey(key))) ? "Copied ✓" : "Copy blocked");
@@ -275,7 +285,7 @@ export class LobbyWelcomeDialog {
         "",
         "This key is your player. This page keeps it only until you leave, and comes back as the same player without it. To play as this player in another browser, on washoi.net or in the Washoi app, paste the key under Use my key.",
       ),
-      shown,
+      plate,
       actions,
       el(
         "p",

@@ -164,11 +164,16 @@ describe("the welcome guide's key step", () => {
   }
   const steps = () => [...document.querySelectorAll(".lobby-guide__step-name")].map((step) => step.textContent);
 
-  it("ends with Save your account while the key is in this session", async () => {
+  it("ends with Your account while the key is in this session", async () => {
     await logIn(lobby(() => welcome({ key: KEY, token: "t1" })));
     openGuide();
-    expect(steps()).toEqual(["Terms of service", "Your keys", "Tip of the day", "Save your account"]);
-    expect(document.querySelector(".lobby-guide__key")?.textContent).toContain("AAAA");
+    expect(steps()).toEqual(["Terms of service", "Your keys", "Tip of the day", "Your account"]);
+    const plate = document.querySelector(".lobby-guide__key")!;
+    expect(plate.textContent).toContain("AAAA");
+    // Blurred until the player asks to see it
+    expect(plate.classList.contains("lobby-guide__key--hidden")).toBe(true);
+    plate.querySelector<HTMLButtonElement>(".lobby-guide__key-reveal")!.click();
+    expect(plate.classList.contains("lobby-guide__key--hidden")).toBe(false);
   });
 
   it("has no key step once the key has gone, nor outside a hosted build", async () => {
