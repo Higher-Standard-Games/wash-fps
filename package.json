@@ -61,6 +61,7 @@
     "build:prod": "node scripts/run-in-engine.mjs npm run build:prod --",
     "build:itch": "node scripts/run-in-engine.mjs npm run build:itch --",
     "build:itch-staging": "node scripts/run-in-engine.mjs npm run build:itch-staging --",
+    "itch:push": "node scripts/run-in-engine.mjs npm run itch:push --",
     "preview": "node scripts/run-in-engine.mjs npm run preview --",
     "test": "node scripts/run-in-engine.mjs npm run test --",
     "test:run": "node scripts/run-in-engine.mjs npm run test:run --",
