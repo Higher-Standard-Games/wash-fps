@@ -188,6 +188,11 @@
   filter: blur(9px);
   user-select: none;
 }
+/* A hosted build's key after its first session: the place it held, dimmed */
+.keyplate--elsewhere .keyplate__groups {
+  opacity: 0.35;
+  user-select: none;
+}
 
 .keyplate__reveal {
   position: absolute;

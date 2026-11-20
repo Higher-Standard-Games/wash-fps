@@ -20,6 +20,7 @@ import type { LobbyClient } from "../../../../lobby/LobbyClient";
 import { registerFPSActions } from "../FPSActions";
 import { TERMS_PREFERENCE, TERMS_VERSION } from "../LobbyWelcomeDialog";
 import { LobbyWelcomeGuide } from "../LobbyWelcomeGuide";
+import { ProfileView } from "../ProfileView";
 import { WelcomeOverlay } from "../WelcomeOverlay";
 
 const KEY = "A".repeat(24);
@@ -99,6 +100,28 @@ describe("hosted login", () => {
     expect(storedPlayerKey()).toBeNull();
     expect(keyKeptElsewhere()).toBe(true);
     expect(keyToSaveNow()).toBeNull();
+  });
+
+  it("keeps Profile's key panel in later sessions, with the key's place held and its actions off", async () => {
+    await logIn(lobby(() => welcome({ key: KEY, token: "t1" })));
+    nextSession();
+    const client = lobby(() => welcome({ token: "t2" }));
+    await logIn(client);
+    const profile = new ProfileView({ client, isInRoom: () => false, modes: () => [] });
+    profile.open(document.body);
+    const plate = profile.root.querySelector<HTMLElement>(".keyplate")!;
+    expect(plate.hidden).toBe(false);
+    expect(plate.textContent).not.toContain("AAAA");
+    expect(plate.querySelector(".keyplate__groups")?.textContent).toContain("••••");
+    expect(plate.querySelector<HTMLElement>(".keyplate__reveal")?.hidden).toBe(true);
+    const actions = [...profile.root.querySelectorAll<HTMLButtonElement>(".welcome__actions button")];
+    expect(actions.length).toBeGreaterThan(1);
+    expect(actions.every((action) => action.disabled)).toBe(true);
+    const another = [...profile.root.querySelectorAll<HTMLButtonElement>("button")].find((k) =>
+      /Use another key/.test(k.textContent ?? ""),
+    );
+    expect(another?.disabled).toBe(false);
+    profile.destroy();
   });
 
   it("drops a refused token, makes a new player, and says why on welcome", async () => {

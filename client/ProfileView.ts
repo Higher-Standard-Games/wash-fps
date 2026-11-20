@@ -35,6 +35,9 @@ import { type LeaderboardPage, newUiApi } from "./NewUiApi";
 import { ratingFeedback } from "./RatingFeedback";
 import identityCSSRaw from "./styles/Identity.css?raw";
 
+/** A key shows in groups of four after its WASHOI- prefix. */
+const KEY_GROUPS = Math.ceil(KEY_LENGTH / 4);
+
 interface PasswordCredentialConstructor {
   new (data: { id: string; password: string; name?: string }): Credential;
 }
@@ -650,7 +653,10 @@ export class ProfileView {
     this.keyNameEl.textContent = name;
 
     const key = storedPlayerKey();
-    const groups = key ? formatKey(key).split("-").slice(1) : [];
+    // A hosted build after the session that made the key: the same panel, with
+    // the key's place held and its actions off, so the player sees what is gone
+    const elsewhere = keyKeptElsewhere();
+    const groups = key ? formatKey(key).split("-").slice(1) : elsewhere ? Array(KEY_GROUPS).fill("••••") : [];
     this.keyGroupsEl.replaceChildren(
       ...groups.map((group) => {
         const span = document.createElement("span");
@@ -658,7 +664,13 @@ export class ProfileView {
         return span;
       }),
     );
-    for (const part of [this.keyPlateEl, this.keyActionsEl, this.keyWarnEl]) part.hidden = !key;
+    for (const part of [this.keyPlateEl, this.keyActionsEl, this.keyWarnEl]) part.hidden = !key && !elsewhere;
+    this.keyPlateEl.classList.toggle("keyplate--elsewhere", elsewhere);
+    this.revealKey.hidden = !key;
+    for (const action of this.keyActionsEl.querySelectorAll("button")) {
+      action.disabled = !key;
+      action.title = key ? "" : "The key was shown when this player was made here";
+    }
     this.keyMissingEl.hidden = !!key;
     this.keyMissingEl.textContent = keyKeptElsewhere()
       ? "Your key was shown when this player was made here, and isn't kept in this browser. Paste it under Use another key to play as this player anywhere else."
