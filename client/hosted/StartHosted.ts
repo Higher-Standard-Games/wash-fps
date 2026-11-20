@@ -7,10 +7,12 @@
  */
 
 import { installHostedPublicUrls } from "../../../../engine/core/PublicUrls";
-import { keepPlayerKeyInMemory } from "../../../../lobby/AccountSession";
+import { setUpHostedLogin } from "../../../../lobby/AccountSession";
 import { setFpsLobbyUrl } from "../FpsLobbyService";
+import { HOSTED_ON } from "./HostedBuild";
+import { installHostedLinks } from "./HostedLinks";
 import { pickRegion } from "./RegionPicker";
-import { LOCAL_REGION, loadRegions, type Region, setTabRegion, tabRegion } from "./Regions";
+import { LOCAL_REGION, loadRegions, type Region, setActiveRegion, setTabRegion, tabRegion } from "./Regions";
 
 export interface HostedStart {
   region: Region;
@@ -24,8 +26,10 @@ export async function startHostedBuild(): Promise<HostedStart> {
   const again = tabRegion(regions);
   const region = again ?? (await pickRegion(regions));
   setTabRegion(region);
+  setActiveRegion(region, regions);
   installHostedPublicUrls({ dataBase: region.dataUrl, buildBase: import.meta.env.BASE_URL });
   setFpsLobbyUrl(region.lobbyUrl);
-  keepPlayerKeyInMemory();
+  setUpHostedLogin(HOSTED_ON ?? "itch", region.id);
+  installHostedLinks();
   return { region, launched: again === null };
 }

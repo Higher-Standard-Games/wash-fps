@@ -1291,6 +1291,12 @@
   animation: lobby-chat-in 0.22s ease-out;
 }
 
+/* A message naming a room gets a Join key on a row of its own, under the text */
+.lobby-chat__join {
+  grid-column: 2 / -1;
+  justify-self: start;
+}
+
 @keyframes lobby-chat-in {
   from {
     opacity: 0;

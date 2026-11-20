@@ -52,8 +52,11 @@ import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
 import { devLog } from "./DevLog";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
+import { HOSTED_ON } from "./hosted/HostedBuild";
+import { JoinLobbyDialog } from "./JoinLobbyDialog";
 import { LeaderboardView } from "./LeaderboardView";
 import { LobbyAssetPreparation } from "./LobbyAssetPreparation";
+import { inThisRegion, type RoomRef, roomCode, roomInText } from "./LobbyCode";
 import { LobbyDownloadIndicator } from "./LobbyDownloadIndicator";
 import { LobbyFullNotice, offlineRetryDelaySec } from "./LobbyFullNotice";
 import { createLobbyMusicKey } from "./LobbyMusicKey";
@@ -63,6 +66,7 @@ import { bindCampaignBoard, bindFeaturedDemos, bindLeaderboard, bindPlayerStats,
 import { ProfileView } from "./ProfileView";
 import { buildRailBrand } from "./RailBrand";
 import { nameColor, RoomChatView } from "./RoomChatView";
+import { roomJoinKey } from "./RoomJoinKey";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
 import campaignCSSRaw from "./styles/Campaign.css?raw";
 import creditsCSSRaw from "./styles/CreditsDialog.css?raw";
@@ -177,6 +181,8 @@ export class LobbyPanel extends GamePanel {
   private devlogLink: HTMLAnchorElement | null = null;
   private musicKey: HTMLButtonElement | null = null;
   private credits: CreditsDialog | null = null;
+  private joinDialog: JoinLobbyDialog | null = null;
+  private joinButton: HTMLButtonElement | null = null;
   private linksObserver: ResizeObserver | null = null;
   /** Up while the lobby has turned this player away at its player cap. */
   private lobbyFullNotice: LobbyFullNotice | null = null;
@@ -400,6 +406,23 @@ export class LobbyPanel extends GamePanel {
   private closeCredits(restoreFocus = true): void {
     this.credits?.destroy(restoreFocus);
     this.credits = null;
+  }
+
+  /** The Join lobby dialog, empty or with a pasted code or link in it. */
+  private openJoinDialog(text?: string): void {
+    this.joinDialog?.destroy();
+    this.joinDialog = new JoinLobbyDialog({ client: this.lobbyClient, text, onClose: () => this.closeJoinDialog() });
+  }
+
+  private closeJoinDialog(): void {
+    this.joinDialog?.destroy();
+    this.joinDialog = null;
+  }
+
+  /** A room named in chat: join it here, or ask before switching region. */
+  private joinNamedRoom(room: RoomRef): void {
+    if (inThisRegion(room)) this.lobbyClient.joinLobby(room.lobbyId, room.inviteToken);
+    else this.openJoinDialog(roomCode(room.lobbyId, room.inviteToken, room.region));
   }
 
   private buildRail(): HTMLElement {
@@ -985,6 +1008,8 @@ export class LobbyPanel extends GamePanel {
       if (mine) msg.classList.add("lobby-chat__msg--me");
       else who.style.setProperty("--who", nameColor(from));
       msg.append(time, who, span("lobby-chat__text", text));
+      const room = roomInText(text);
+      if (room) msg.append(roomJoinKey(room, () => this.joinNamedRoom(room)));
     }
 
     log.appendChild(msg);
@@ -1046,6 +1071,9 @@ export class LobbyPanel extends GamePanel {
       {
         fillWithBots: quickPlay ? QUICK_PLAY_BOTS : 0,
         onMapSelection: (map) => LobbyAssetPreparation.shared.selectMap(map),
+        roomCode: roomCode(lobby.id, inviteToken),
+        // A hosted build's address is its host's, not a link anyone can open
+        showLink: HOSTED_ON === null,
       },
     );
     this.matchLobbyView.onLeave(() => this.leaveRoom());
@@ -1065,7 +1093,9 @@ export class LobbyPanel extends GamePanel {
     this.modesContainer.scrollTop = 0;
     const railMiddle = this.railEl?.querySelector(".lobby__rail-mid--rooms");
     if (railMiddle) {
-      this.roomChatView = new RoomChatView(this.lobbyClient, lobby, this.localLobbyPlayerId);
+      this.roomChatView = new RoomChatView(this.lobbyClient, lobby, this.localLobbyPlayerId, (room) =>
+        this.joinNamedRoom(room),
+      );
       railMiddle.appendChild(this.roomChatView.root);
       this.railEl?.classList.add("lobby__rail--room");
     }
@@ -1198,7 +1228,11 @@ export class LobbyPanel extends GamePanel {
     privateButton.addEventListener("click", () => this.showPrivateLobby(this.selectedModeId));
     privateButton.disabled = true;
     privateButton.title = "Connect to a lobby server with private rooms.";
-    actions.append(this.findButton, privateButton);
+    const joinButton = createRaisedKey({ label: "Join lobby", variants: ["cream"] });
+    this.joinButton = joinButton;
+    joinButton.addEventListener("click", () => this.openJoinDialog());
+    joinButton.disabled = true;
+    actions.append(this.findButton, privateButton, joinButton);
 
     const notice = document.createElement("p");
     notice.className = "lobby__play-notice";
@@ -1257,6 +1291,7 @@ export class LobbyPanel extends GamePanel {
       this.privateButton.disabled = keys.private.disabled;
       this.privateButton.title = keys.private.title;
     }
+    if (this.joinButton) this.joinButton.disabled = !this.lobbyClient.connected;
     this.refreshQuickPlayKey();
   }
 
@@ -1698,6 +1733,7 @@ export class LobbyPanel extends GamePanel {
     this.chatScroll?.destroy();
     this.welcomeGuide?.destroy();
     this.closeCredits(false);
+    this.closeJoinDialog();
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);

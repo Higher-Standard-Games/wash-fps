@@ -12,6 +12,8 @@ import type {
   RoomChatBroadcastMessage,
 } from "../../../lobby/types";
 import { ChatScroll } from "./ChatScroll";
+import { type RoomRef, roomInText } from "./LobbyCode";
+import { roomJoinKey } from "./RoomJoinKey";
 
 const MAX_VISIBLE_MESSAGES = 50;
 
@@ -38,7 +40,13 @@ export class RoomChatView {
   private readonly members = new Map<string, string>();
   private readonly unsubscribers: Array<() => void> = [];
 
-  constructor(client: LobbyClient, lobby: MatchLobbyInfo, localPlayerId: string | null) {
+  /** `onRoom` joins a room a message names (a room code or link). */
+  constructor(
+    client: LobbyClient,
+    lobby: MatchLobbyInfo,
+    localPlayerId: string | null,
+    private readonly onRoom?: (room: RoomRef) => void,
+  ) {
     this.client = client;
     this.lobbyId = lobby.id;
     this.localPlayerId = localPlayerId;
@@ -191,6 +199,8 @@ export class RoomChatView {
     text.className = "lobby-chat__text";
     text.textContent = message.text;
     row.append(time, who, text);
+    const room = this.onRoom ? roomInText(message.text) : null;
+    if (room) row.append(roomJoinKey(room, () => this.onRoom?.(room)));
     this.log.appendChild(row);
     this.trim();
     this.scroll.follow();

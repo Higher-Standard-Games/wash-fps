@@ -1,12 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  keepPlayerKeyInMemory,
-  logIn,
-  resetAccountSessionForTests,
-  restoreAccount,
-  storedPlayerKey,
-} from "../../../../lobby/AccountSession";
+import { logIn, resetAccountSessionForTests, restoreAccount, storedPlayerKey } from "../../../../lobby/AccountSession";
 import type { LobbyClient } from "../../../../lobby/LobbyClient";
 import { formatKey } from "../../../../lobby/PlayerIdentity";
 import { ProfileView } from "../ProfileView";
@@ -46,17 +40,6 @@ function client(accountId = "1", key = "A".repeat(24)): LobbyClient {
 }
 
 describe("session-only account keys", () => {
-  it("keeps the key in memory only in a hosted build, and says so on welcome", async () => {
-    keepPlayerKeyInMemory();
-    const lobby = client();
-    await logIn(lobby);
-    expect(storedPlayerKey()).toBe("A".repeat(24));
-    expect(localStorage.getItem("shag_player_key")).toBeNull();
-    welcome = new WelcomeOverlay(() => {});
-    welcome.open(document.body);
-    expect(welcome.root.textContent).toContain("open Profile and copy or save your key before reloading");
-  });
-
   it("hides a revealed Profile key on close and reopen, while keeping copy available", async () => {
     const lobby = client();
     await logIn(lobby);

@@ -104,3 +104,24 @@ describe("region list", () => {
     expect(nearestRegion(BUILT_IN_REGIONS, new Map([["us", { status: "unreachable" as const }]]), eu).id).toBe("eu");
   });
 });
+
+describe("links in a hosted build", () => {
+  it("open other sites in a new tab and leave this page's links alone", async () => {
+    const { installHostedLinks } = await import("../HostedLinks");
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    installHostedLinks();
+    const outside = document.createElement("a");
+    outside.href = "https://washoi.net/devlog";
+    const inside = document.createElement("a");
+    inside.href = "#here";
+    document.body.append(outside, inside);
+    const clickOutside = new MouseEvent("click", { bubbles: true, cancelable: true });
+    outside.dispatchEvent(clickOutside);
+    expect(clickOutside.defaultPrevented).toBe(true);
+    expect(open).toHaveBeenCalledWith("https://washoi.net/devlog", "_blank", "noopener");
+    const clickInside = new MouseEvent("click", { bubbles: true, cancelable: true });
+    inside.dispatchEvent(clickInside);
+    expect(clickInside.defaultPrevented).toBe(false);
+    document.body.replaceChildren();
+  });
+});

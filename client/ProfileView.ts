@@ -9,11 +9,13 @@
  */
 
 import { PlayerProfile } from "../../../engine/player/PlayerProfile";
+import { copyText } from "../../../engine/ui/CopyText";
 import { createRaisedKey } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import {
   currentIdentity,
   deleteAccount,
+  keyKeptElsewhere,
   LoginError,
   loginFailureText,
   playerKeyIsSessionOnly,
@@ -28,20 +30,10 @@ import { isRatingMode, type RatingMode } from "../../../shared/ranking/RatingPol
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
 import { buildIdentityFrame, identityScreen, narrowOntoRail, widenFromRail } from "./IdentityFrame";
+import { saveKeyFile } from "./KeyFile";
 import { type LeaderboardPage, newUiApi } from "./NewUiApi";
 import { ratingFeedback } from "./RatingFeedback";
 import identityCSSRaw from "./styles/Identity.css?raw";
-
-const KEY_FILE_LINES = (name: string, key: string) => [
-  "Washiki Washoi player key",
-  "",
-  `Player: ${name}`,
-  `Key:    ${key}`,
-  "",
-  'To play as this player in another browser, open the game, choose "Use my key"',
-  "and paste the key. Anyone with this key can play as you. Keep it private.",
-  "",
-];
 
 interface PasswordCredentialConstructor {
   new (data: { id: string; password: string; name?: string }): Credential;
@@ -668,6 +660,9 @@ export class ProfileView {
     );
     for (const part of [this.keyPlateEl, this.keyActionsEl, this.keyWarnEl]) part.hidden = !key;
     this.keyMissingEl.hidden = !!key;
+    this.keyMissingEl.textContent = keyKeptElsewhere()
+      ? "Your key was shown when this player was made here, and isn't kept in this browser. Paste it under Use another key to play as this player anywhere else."
+      : "Your key is made the first time you reach the lobby.";
     this.keyStorageWarnEl.hidden = !key || !playerKeyIsSessionOnly();
 
     if (document.activeElement !== this.nameSlot.input) this.nameSlot.setValue(name);
@@ -796,24 +791,13 @@ export class ProfileView {
   private async copyKey(button: HTMLButtonElement): Promise<void> {
     const key = storedPlayerKey();
     if (!key) return;
-    try {
-      await navigator.clipboard.writeText(formatKey(key));
-      this.said(button, "Copied ✓");
-    } catch {
-      this.said(button, "Copy blocked");
-    }
+    this.said(button, (await copyText(formatKey(key))) ? "Copied ✓" : "Copy blocked");
   }
 
   private saveKeyFile(): void {
     const key = storedPlayerKey();
     if (!key) return;
-    const name = currentIdentity()?.name ?? PlayerProfile.load().name;
-    const blob = new Blob([KEY_FILE_LINES(name, formatKey(key)).join("\n")], { type: "text/plain" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `washoi-key-${name}.txt`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    saveKeyFile(currentIdentity()?.name ?? PlayerProfile.load().name, key);
   }
 
   private async saveKeyInBrowser(button: HTMLButtonElement): Promise<void> {

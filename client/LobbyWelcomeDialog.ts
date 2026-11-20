@@ -1,12 +1,16 @@
 import { writePreference } from "../../../engine/core/PreferenceStorage";
 import { InputSystem } from "../../../engine/input/InputSystem";
+import { copyText } from "../../../engine/ui/CopyText";
 import { raiseKey, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
+import { currentIdentity, keyToSaveNow } from "../../../lobby/AccountSession";
+import { formatKey } from "../../../lobby/PlayerIdentity";
 import privacy from "../PRIVACY.md?raw";
 import { DEFAULT_FPS_MOVEMENT_CONFIG } from "../simulation/MovementProfile";
 import terms from "../TERMS.md?raw";
 import { renderMarkdown } from "./credits/MarkdownLite";
 import { FPS } from "./FPSActions";
+import { saveKeyFile } from "./KeyFile";
 import settingsCSS from "./settings/FPSSettingsView.css?raw";
 import { createInputDiagram } from "./settings/InputDiagram";
 import { button, el } from "./settings/SettingsFields";
@@ -76,6 +80,12 @@ export class LobbyWelcomeDialog {
   private readonly previousBlur: boolean;
   private readonly previousOverflow = document.body.style.overflow;
   private tab = 0;
+  private keyToSave: string | null = null;
+  private names: string[] = [];
+  /** The last step: Close instead of Next. */
+  private get last(): number {
+    return this.names.length - 1;
+  }
   private disposed = false;
   private readonly input = InputSystem.getInstance();
 
@@ -105,7 +115,10 @@ export class LobbyWelcomeDialog {
     tablist.setAttribute("role", "tablist");
     tablist.setAttribute("aria-label", "Welcome guide");
     const content = el("div", "lobby-guide__content");
-    const names = ["Terms of service", "Your keys", "Tip of the day"];
+    // A hosted build shows the key in the session that made it, and only then
+    this.keyToSave = keyToSaveNow();
+    const names = ["Terms of service", "Your keys", "Tip of the day", ...(this.keyToSave ? ["Save your account"] : [])];
+    this.names = names;
     names.forEach((name, index) => {
       // A wizard's steps: the number in its badge, then the name
       const tab = button("lobby-guide__tab");
@@ -145,7 +158,7 @@ export class LobbyWelcomeDialog {
     this.setup.addEventListener("click", options.onSetup);
     this.next.addEventListener("click", () => {
       if (!this.agreed) return;
-      if (this.tab === 2) options.onClose();
+      if (this.tab === this.last) options.onClose();
       else this.select(this.tab + 1);
     });
     footer.append(this.setup, this.agreeLabel, this.preference, this.next);
@@ -241,6 +254,35 @@ export class LobbyWelcomeDialog {
       );
     extra.append(el("h3", "", secondary === 0 ? "Land softer" : "Chain your movement"), extraText);
     tips.append(slide, wall, extra, el("small", "lobby-guide__muted", "Tips describe standard movement rules."));
+    if (this.keyToSave) this.buildKeyPage(this.panels[3], this.keyToSave);
+  }
+
+  /** The player's key, to copy or save now: a hosted build keeps it only for this visit. */
+  private buildKeyPage(panel: HTMLElement, key: string): void {
+    const shown = el("p", "lobby-guide__key", formatKey(key));
+    const copy = raiseKey(button("lobby-guide__button"), { label: "Copy key", variants: ["cream", "inline"] });
+    copy.addEventListener("click", async () => {
+      setRaisedKeyText(copy, (await copyText(formatKey(key))) ? "Copied ✓" : "Copy blocked");
+    });
+    const save = raiseKey(button("lobby-guide__button"), { label: "Save as file", variants: ["cream", "inline"] });
+    save.addEventListener("click", () => saveKeyFile(currentIdentity()?.name ?? "player", key));
+    const actions = el("div", "lobby-guide__key-actions");
+    actions.append(copy, save);
+    panel.append(
+      el("h2", "", "Copy your key to safety."),
+      el(
+        "p",
+        "",
+        "This key is your player. This page keeps it only until you leave, and comes back as the same player without it. To play as this player in another browser, on washoi.net or in the Washoi app, paste the key under Use my key.",
+      ),
+      shown,
+      actions,
+      el(
+        "p",
+        "lobby-guide__muted",
+        "Anyone who has the key can play as you. Profile shows it until you leave this page.",
+      ),
+    );
   }
 
   private select(tab: number): void {
@@ -253,15 +295,12 @@ export class LobbyWelcomeDialog {
       key.tabIndex = index === tab ? 0 : -1;
       this.panels[index].hidden = index !== tab;
     });
-    setRaisedKeyText(this.next, tab === 2 ? "Close" : "Next »");
+    setRaisedKeyText(this.next, tab === this.last ? "Close" : "Next »");
     this.next.disabled = !this.agreed;
     this.next.title = this.agreed ? "" : "Agree to the terms to continue";
-    this.next.setAttribute(
-      "aria-label",
-      tab === 2 ? "Close welcome guide" : `Next: ${tab === 0 ? "Your keys" : "Tip of the day"}`,
-    );
+    this.next.setAttribute("aria-label", tab === this.last ? "Close welcome guide" : `Next: ${this.names[tab + 1]}`);
     this.setup.hidden = tab !== 1;
-    this.preference.hidden = tab !== 2;
+    this.preference.hidden = tab !== this.last;
     this.agreeLabel.hidden = tab !== 0;
     this.card.querySelector(".lobby-guide__content")!.scrollTop = 0;
   }
@@ -301,7 +340,10 @@ export class LobbyWelcomeDialog {
       if (direction || event.key === "Home" || event.key === "End") {
         event.preventDefault();
         if (!this.agreed) return;
-        this.select(event.key === "Home" ? 0 : event.key === "End" ? 2 : (this.tab + direction + 3) % 3);
+        const count = this.names.length;
+        this.select(
+          event.key === "Home" ? 0 : event.key === "End" ? this.last : (this.tab + direction + count) % count,
+        );
         this.tabs[this.tab].focus();
       }
     }

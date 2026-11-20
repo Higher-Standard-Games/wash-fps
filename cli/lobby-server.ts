@@ -16,7 +16,7 @@ import { FairPlayStore } from "../../../lobby/FairPlayStore";
 import { GameServerSpawner } from "../../../lobby/GameServerSpawner";
 import { DEFAULT_MAX_PLAYERS, LobbyServer } from "../../../lobby/LobbyServer";
 import { MatchResultStore } from "../../../lobby/MatchResultStore";
-import { PlayerStore } from "../../../lobby/PlayerStore";
+import { HOST_LABEL, PlayerStore } from "../../../lobby/PlayerStore";
 import { RatingStore } from "../../../lobby/RatingStore";
 import { loadBotSecret, resolveDataDir } from "../../../lobby/ServerData";
 import { describeServerRuntime } from "../../../lobby/ServerRuntime";
@@ -39,6 +39,8 @@ let resultsInfo = false;
 let ratingsInfo = false;
 let ratingsVerify = false;
 let resultsRecover = false;
+/** A host whose hosted-build login tokens are all dropped (--revoke-tokens). */
+let revokeTokensHost: string | undefined;
 /** Seat invited bots in this process and play their matches in match runners (no bot server), unless --bot-server. */
 let botSeatsArg = true;
 
@@ -64,6 +66,10 @@ for (let i = 0; i < args.length; i++) {
     maxPlayersArg = args[i + 1];
     i++;
   }
+  if (args[i] === "--revoke-tokens" && args[i + 1]) {
+    revokeTokensHost = args[i + 1];
+    i++;
+  }
   if (args[i] === "--help" || args[i] === "-h") {
     console.log(`
 Washoi Lobby Server
@@ -87,6 +93,9 @@ Options:
                      here (by default the lobby seats them and plays each
                      match's bots in a match runner of its own)
   --results-recover  Retry signed result outbox reports into existing storage; requires explicit --data-dir
+  --revoke-tokens <host>
+                     Drop every hosted-build login token for <host> (itch), then exit.
+                     Those browsers log in with the key again; requires explicit --data-dir
 `);
     process.exit(0);
   }
@@ -113,6 +122,20 @@ if (resultsRecover) {
     store.close();
   }
   process.exit(recoveryExit);
+}
+
+if (revokeTokensHost !== undefined) {
+  if (!dataDirArg || !HOST_LABEL.test(revokeTokensHost)) {
+    console.error("Token revocation needs an explicit --data-dir and a host label such as itch.");
+    process.exit(1);
+  }
+  const store = PlayerStore.open(resolveDataDir(dataDirArg));
+  try {
+    console.log(`Dropped ${store.revokeHostTokens(revokeTokensHost)} login tokens for ${revokeTokensHost}.`);
+  } finally {
+    store.close();
+  }
+  process.exit(0);
 }
 
 if (ratingsInfo) {

@@ -152,3 +152,30 @@ export function tabRegion(regions: readonly Region[]): Region | null {
 export function setTabRegion(region: Region): void {
   write(tab, TAB_KEY, region.id);
 }
+
+let active: { region: Region; regions: readonly Region[] } | null = null;
+
+/** The region this hosted build launched, and the list it was picked from. */
+export function setActiveRegion(region: Region, regions: readonly Region[]): void {
+  active = { region, regions };
+}
+
+/**
+ * The regions room codes can name: a hosted build's list, or the built-in one
+ * (with this machine's) for a build served from a region's own site.
+ */
+export function knownRegions(): readonly Region[] {
+  return active?.regions ?? [...BUILT_IN_REGIONS, LOCAL_REGION];
+}
+
+/** The region this client plays in: the one picked, or the one whose lobby the build was made for. */
+export function activeRegion(
+  lobbyUrl: string = import.meta.env.VITE_LOBBY_URL || LOCAL_REGION.lobbyUrl,
+): Region | null {
+  return active?.region ?? knownRegions().find((region) => region.lobbyUrl === lobbyUrl) ?? null;
+}
+
+/** Forget the active region, for tests. */
+export function resetActiveRegionForTests(): void {
+  active = null;
+}

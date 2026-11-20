@@ -12,6 +12,7 @@ import { UINavigation } from "../../../engine/ui/navigation/UINavigation";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import {
   currentIdentity,
+  endedLoginReason,
   LoginError,
   loginFailureText,
   playerKeyIsSessionOnly,
@@ -48,6 +49,14 @@ export class WelcomeOverlay {
     const frame = buildIdentityFrame("Welcome", "HELLO");
     this.ghostEl = frame.ghost;
     frame.inner.append(this.buildNameScreen(), this.buildRestoreScreen());
+    const ended = endedLoginReason();
+    if (ended) {
+      const notice = document.createElement("p");
+      notice.className = "identity-warn";
+      notice.setAttribute("role", "status");
+      notice.textContent = loginFailureText(ended);
+      frame.inner.append(notice);
+    }
     if (playerKeyIsSessionOnly()) {
       const notice = document.createElement("p");
       notice.className = "identity-warn";

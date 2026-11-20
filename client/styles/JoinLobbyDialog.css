@@ -1,0 +1,33 @@
+/* The Join lobby dialog: a small card in the welcome guide's style */
+.join-lobby__card {
+  width: min(560px, 100%);
+  padding: 26px 28px 24px;
+  gap: 14px;
+}
+.join-lobby__title {
+  margin: 0;
+  font: 800 30px / 1.1 var(--display);
+}
+.join-lobby__field {
+  width: 100%;
+  padding: 12px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  background: #fffdf5;
+  color: var(--ink);
+  font: 600 18px var(--body);
+}
+.join-lobby__field:focus-visible {
+  outline: 3px solid var(--violet);
+  outline-offset: 2px;
+}
+.join-lobby__status {
+  min-height: 1.4em;
+  margin: 0;
+  font: 600 16px / 1.35 var(--body);
+}
+.join-lobby__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
