@@ -22,7 +22,10 @@ export interface HostedStart {
 
 export async function startHostedBuild(): Promise<HostedStart> {
   const listed = await loadRegions();
-  const regions = import.meta.env.VITE_LOCAL_REGION === "1" ? [...listed, LOCAL_REGION] : listed;
+  // A staging build offers this machine's lobby only when it is served from
+  // this machine: browsers keep a page on itch.io from reaching localhost
+  const local = import.meta.env.VITE_LOCAL_REGION === "1" && ["localhost", "127.0.0.1"].includes(location.hostname);
+  const regions = local ? [...listed, LOCAL_REGION] : listed;
   const again = tabRegion(regions);
   const region = again ?? (await pickRegion(regions));
   setTabRegion(region);

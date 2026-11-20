@@ -1,10 +1,15 @@
-/* The region picker: the lobby's ink, cream, gold and violet, on the loading screen's dark ground. */
+/*
+ * The region picker: washoi.net's /play launcher and its region-map.css, as
+ * the native client draws them. Cyan hairline, gold for the selection, the
+ * game's radar ping on the pins.
+ */
 .region-picker {
-  --cream: hsl(45 100% 95%);
-  --ink: hsl(250 45% 7%);
-  --gold: hsl(46 100% 60%);
-  --violet: hsl(276 90% 64%);
-  /* Launch is the lobby's arcade key, in gold, as the post-game's way home is */
+  --cream: var(--w-cream, hsl(42 95% 92%));
+  --cream-dim: var(--w-cream-dim, hsla(42, 95%, 92%, 0.62));
+  --hairline: hsla(180, 100%, 50%, 0.28);
+  --cyan: hsl(185, 98%, 62%);
+  --gold: hsl(42, 96%, 60%);
+  /* Launch is the lobby's arcade key in gold, as the site's is */
   --accent: hsl(46 100% 57%);
   --accent-hi: hsl(51 100% 73%);
   --accent-lo: hsl(42 100% 50%);
@@ -13,89 +18,239 @@
   position: fixed;
   inset: 0;
   z-index: 10020;
-  display: grid;
-  place-items: center;
-  padding: clamp(12px, 3vw, 44px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(20px, 4vh, 44px);
+  padding: clamp(14px, 3vw, 48px);
   box-sizing: border-box;
-  background: radial-gradient(ellipse at 50% 30%, #2a1840, #0b0712 70%);
+  overflow: auto;
+  background: hsl(250, 40%, 5%);
   color: var(--cream);
-  font-family: var(--w-font-body, sans-serif);
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
 }
 .region-picker *,
 .region-picker *::before,
 .region-picker *::after {
   box-sizing: border-box;
 }
-.region-picker__card {
-  width: min(760px, 100%);
+
+/* The slab: a dark panel with a hard shadow down and right */
+.region-picker__slab {
+  /* The map is about 2.7 times as wide as it is tall: in a short window it
+     narrows, so the whole picker fits without scrolling */
+  width: min(1100px, 100%, calc((100dvh - 380px) * 2.5));
+  min-width: min(560px, 100%);
+  container-type: inline-size;
+  background: linear-gradient(180deg, hsla(250, 35%, 9%, 0.96), hsla(250, 40%, 6%, 0.96));
+  border: 1px solid hsla(250, 30%, 30%, 0.35);
+  box-shadow: 10px 12px 0 hsla(250, 45%, 3%, 0.75);
+}
+.region-picker__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px clamp(14px, 2vw, 24px);
+  border-bottom: 1px solid var(--hairline);
+  font: 400 clamp(10px, 0.9vw, 12px) / 1.2 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--cream-dim);
+}
+.region-picker__slashes {
+  color: var(--cyan);
+}
+.region-picker__dot {
+  color: var(--gold);
+}
+@container (max-width: 760px) {
+  .region-picker__hint {
+    display: none;
+  }
+}
+.region-picker__body {
+  /* Some labels sit above their pins, and the northern pins are near the top */
+  padding: clamp(28px, 6vh, 56px) clamp(10px, 2vw, 24px) clamp(14px, 3vh, 24px);
+}
+
+.region-picker__foot {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(18px, 4vh, 36px);
-}
-.region-picker__title {
-  margin: 0;
-  font: 800 clamp(28px, 4.4vw, 46px) / 1.05 var(--w-font-display, sans-serif);
-  letter-spacing: 0.02em;
-  text-align: center;
-}
-.region-picker__regions {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-}
-.region-picker__region {
-  display: grid;
-  align-content: start;
-  gap: 4px;
-  justify-items: start;
-  padding: 18px 20px 20px;
-  border: 2px solid #ffffff22;
-  border-radius: 6px;
-  background: linear-gradient(160deg, #2d2740, #16121f);
-  color: var(--cream);
-  text-align: left;
-  font: inherit;
-  cursor: var(--ui-cursor-hover, pointer);
-  box-shadow: 0 6px 0 #0d0b16;
-}
-.region-picker__region:hover {
-  border-color: #ffffff55;
-}
-.region-picker__region--on {
-  border-color: var(--gold);
-  background: linear-gradient(160deg, #4a3a68, #221a33);
-}
-.region-picker__region:focus-visible {
-  outline: 3px solid var(--violet);
-  outline-offset: 3px;
-}
-.region-picker__code {
-  font: 800 40px / 1 var(--w-font-display, sans-serif);
-  color: var(--gold);
-}
-.region-picker__name {
-  font-weight: 700;
-  font-size: 18px;
-}
-.region-picker__host,
-.region-picker__ping {
-  font-size: 15px;
-  color: #fff6dfaa;
-}
-.region-picker__nearest {
-  margin-top: 6px;
-  padding: 3px 8px;
-  border-radius: 3px;
-  background: var(--gold);
-  color: var(--ink);
-  font: 800 13px var(--w-font-display, sans-serif);
-  text-transform: uppercase;
-}
-.region-picker__nearest[hidden] {
-  display: none;
+  gap: 14px;
+  width: min(580px, 100%);
 }
 .region-picker__launch {
-  min-width: min(360px, 100%);
+  width: 100%;
+}
+.region-picker__status {
+  margin: 0;
+  font: 500 16px / 1.4 var(--w-font-body, "Rajdhani", sans-serif);
+  color: var(--cream-dim);
+  text-align: center;
+}
+.region-picker__status-name {
+  color: var(--cream);
+}
+.region-picker__status-host {
+  color: var(--cyan);
+}
+
+/* ---- Map ---------------------------------------------------------------- */
+
+/* The labels scale with the map, so a small window doesn't pile them up */
+.region-map {
+  position: relative;
+  container-type: inline-size;
+}
+.region-map__world {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.region-map__land {
+  fill: hsla(185, 70%, 60%, 0.3);
+}
+.region-map__glow path {
+  fill: var(--cyan);
+}
+.region-map__glow {
+  opacity: 0.55;
+  transition: opacity 0.16s steps(2, end);
+}
+.region-map__glow--on path {
+  fill: hsl(42, 96%, 58%);
+}
+.region-map__link {
+  fill: none;
+  stroke: hsla(185, 98%, 62%, 0.45);
+  stroke-width: 0.35;
+  stroke-dasharray: 1.2 1;
+  animation: region-map-flow 1.6s linear infinite;
+}
+@keyframes region-map-flow {
+  to {
+    stroke-dashoffset: -2.2;
+  }
+}
+
+.region-map__core {
+  fill: var(--cyan);
+  stroke: hsl(250, 45%, 6%);
+  stroke-width: 0.35;
+}
+.region-map__pin--on .region-map__core {
+  fill: var(--gold);
+}
+.region-map__ring {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 0.3;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: region-map-ping 2.4s ease-out infinite;
+}
+.region-map__ring--late {
+  animation-delay: 1.2s;
+}
+.region-map__pin--on .region-map__ring {
+  stroke: var(--gold);
+}
+@keyframes region-map-ping {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(4.2);
+    opacity: 0;
+  }
+}
+
+/* ---- Labels (the controls) ---------------------------------------------- */
+
+.region-map__label {
+  position: absolute;
+  /* Up and to the right of the pin, with a small gap */
+  transform: translate(10px, calc(-100% - 8px));
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: var(--ui-cursor-hover, pointer);
+  filter: drop-shadow(3px 4px 0 hsla(250, 45%, 4%, 0.6));
+  transition: transform 0.12s steps(2, end);
+}
+.region-map__label:hover {
+  transform: translate(10px, calc(-100% - 10px));
+}
+.region-map__label--below {
+  transform: translate(10px, 10px);
+}
+.region-map__label--below:hover {
+  transform: translate(10px, 8px);
+}
+.region-map__label:focus-visible {
+  outline: 2px solid var(--cream);
+  outline-offset: 3px;
+}
+.region-map__code {
+  display: flex;
+  align-items: center;
+  padding: 0.23em 0.46em 0.23em 0.54em;
+  font: 900 clamp(15px, 2.5cqw, 26px) / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: -0.02em;
+  color: hsl(250, 45%, 8%);
+  background: linear-gradient(180deg, hsl(185, 98%, 72%), hsl(185, 90%, 50%));
+  clip-path: polygon(10% 0, 100% 0, 100% 100%, 0 100%);
+}
+.region-map__label--on .region-map__code {
+  background: linear-gradient(180deg, hsl(51, 100%, 73%), hsl(46, 100%, 58%) 55%, hsl(42, 100%, 50%));
+}
+.region-map__meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: clamp(3px, 0.55cqw, 6px) clamp(10px, 1.5cqw, 16px) clamp(4px, 0.65cqw, 7px) clamp(6px, 1cqw, 10px);
+  background: linear-gradient(100deg, hsla(250, 30%, 12%, 0.94), hsla(255, 28%, 6%, 0.94) 70%);
+  border: 1px solid var(--hairline);
+  border-left: 0;
+  clip-path: polygon(0 0, 100% 0, 94% 100%, 0 100%);
+  white-space: nowrap;
+}
+.region-map__label--on .region-map__meta {
+  border-color: hsla(42, 96%, 60%, 0.7);
+}
+.region-map__name {
+  font: 700 clamp(9px, 1.25cqw, 13px) / 1.1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cream);
+}
+.region-map__host {
+  font: 600 clamp(9px, 1.25cqw, 13px) / 1.1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.04em;
+  color: hsl(185, 98%, 68%);
+}
+.region-map__stats {
+  display: flex;
+  gap: 10px;
+  font: 600 clamp(7px, 0.95cqw, 10px) / 1.2 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cream-dim);
+}
+.region-map__live {
+  color: hsl(150, 80%, 60%);
+}
+.region-map__nearest {
+  color: var(--gold);
+}
+.region-map__nearest[hidden] {
+  display: none;
 }

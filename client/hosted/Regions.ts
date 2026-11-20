@@ -16,6 +16,10 @@ export interface Region {
   code: string;
   name: string;
   host: string;
+  /** Where the marker sits on the map: the middle of the region served, not a server location. */
+  pin: { lon: number; lat: number };
+  /** Whether the map label sits above or below its pin, so neighbours don't collide. */
+  labelSide: "above" | "below";
   /** IANA time zone prefixes that make this the first guess before any ping. */
   timeZones: string[];
   lobbyUrl: string;
@@ -32,6 +36,8 @@ export const BUILT_IN_REGIONS: readonly Region[] = [
     code: "EU",
     name: "Europe",
     host: "eu.washoi.net",
+    pin: { lon: 10, lat: 50 },
+    labelSide: "above",
     timeZones: ["Europe/", "Africa/", "Asia/"],
     lobbyUrl: "wss://eu.washoi.net/lobby",
     dataUrl: "https://eu.washoi.net/data",
@@ -41,6 +47,8 @@ export const BUILT_IN_REGIONS: readonly Region[] = [
     code: "US",
     name: "North America",
     host: "us.washoi.net",
+    pin: { lon: -92, lat: 39 },
+    labelSide: "below",
     timeZones: ["America/", "Pacific/", "US/", "Canada/"],
     lobbyUrl: "wss://us.washoi.net/lobby",
     dataUrl: "https://us.washoi.net/data",
@@ -53,6 +61,9 @@ export const LOCAL_REGION: Region = {
   code: "LOCAL",
   name: "This computer",
   host: "localhost",
+  // The empty South Atlantic, clear of the real regions' labels
+  pin: { lon: -20, lat: -22 },
+  labelSide: "below",
   timeZones: [],
   lobbyUrl: "ws://localhost:9000",
   dataUrl: "http://localhost:3000/data",
@@ -70,7 +81,12 @@ function readRegion(value: unknown): Region | null {
   if (!text(lobbyUrl) || !text(dataUrl)) return null;
   if (!lobbyUrl.startsWith("wss://") || !dataUrl.startsWith("https://")) return null;
   const timeZones = Array.isArray(entry.timeZones) ? entry.timeZones.filter(text) : [];
-  return { id, code, name, host, timeZones, lobbyUrl, dataUrl: dataUrl.replace(/\/+$/, "") };
+  const pinned = entry.pin as { lon?: unknown; lat?: unknown } | undefined;
+  const pin =
+    typeof pinned?.lon === "number" && typeof pinned.lat === "number" ? { lon: pinned.lon, lat: pinned.lat } : null;
+  if (!pin) return null;
+  const labelSide = entry.labelSide === "below" ? "below" : "above";
+  return { id, code, name, host, pin, labelSide, timeZones, lobbyUrl, dataUrl: dataUrl.replace(/\/+$/, "") };
 }
 
 /** The live regions in a `/regions.json` document, or null when it isn't one. */
