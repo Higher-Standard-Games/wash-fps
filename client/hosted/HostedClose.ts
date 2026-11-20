@@ -1,6 +1,6 @@
 /**
- * The close plate a hosted build's lobby shows in its top-right corner: the
- * demo player's ✕, mirrored. itch.io's "launch in fullscreen" fills the window
+ * The close plate a hosted build's lobby shows in its top-left corner, where
+ * the demo player has its ✕. itch.io's "launch in fullscreen" fills the window
  * with the game and offers no way out of its own; its page's Back does it, so
  * the plate goes back one step. The game keeps running in its box on the page.
  *
