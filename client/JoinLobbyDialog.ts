@@ -20,10 +20,14 @@ const INPUT_CONTEXT = "fps_join_lobby";
 
 /**
  * Open a room in another region: a hosted build reloads its own page in that
- * region, a region's site sends the player to the other region's site. The
+ * region (replacing its history entry, so the host page's Back still leaves
+ * the game), a region's site sends the player to the other region's site. The
  * room is in the address either way, which the lobby joins on start.
  */
-export function goToRegionRoom(room: RoomRef, navigate: (url: string) => void = (url) => location.assign(url)): void {
+export function goToRegionRoom(
+  room: RoomRef,
+  navigate: (url: string) => void = (url) => (HOSTED_ON ? location.replace(url) : location.assign(url)),
+): void {
   if (!room.region) return;
   const url = HOSTED_ON ? new URL(location.href) : new URL("/", new URL(room.region.dataUrl).origin);
   url.searchParams.set("lobby", room.lobbyId);
