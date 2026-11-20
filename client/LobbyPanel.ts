@@ -53,6 +53,7 @@ import { type DemoScope, DemosView } from "./DemosView";
 import { devLog } from "./DevLog";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { HOSTED_ON } from "./hosted/HostedBuild";
+import { hostedClosePlate } from "./hosted/HostedClose";
 import { JoinLobbyDialog } from "./JoinLobbyDialog";
 import { LeaderboardView } from "./LeaderboardView";
 import { LobbyAssetPreparation } from "./LobbyAssetPreparation";
@@ -183,6 +184,8 @@ export class LobbyPanel extends GamePanel {
   private credits: CreditsDialog | null = null;
   private joinDialog: JoinLobbyDialog | null = null;
   private joinButton: HTMLButtonElement | null = null;
+  /** A hosted build's close plate, in a frame: back to the host's page. */
+  private readonly closePlate = hostedClosePlate();
   private linksObserver: ResizeObserver | null = null;
   /** Up while the lobby has turned this player away at its player cap. */
   private lobbyFullNotice: LobbyFullNotice | null = null;
@@ -325,6 +328,10 @@ export class LobbyPanel extends GamePanel {
       this.root.style.setProperty("--lobby-links-height", height);
     });
     this.linksObserver.observe(links);
+    if (this.closePlate) {
+      this.closePlate.hidden = true;
+      document.body.append(this.closePlate);
+    }
     this.welcomeGuide = new LobbyWelcomeGuide({
       root: this.root,
       helpParent: links,
@@ -1120,6 +1127,7 @@ export class LobbyPanel extends GamePanel {
 
   show(): void {
     this.open();
+    if (this.closePlate) this.closePlate.hidden = false;
     // A name screen opened while the lobby was still hidden could not take focus
     this.welcomeOverlay?.focus();
     this.welcomeGuide?.show();
@@ -1138,6 +1146,7 @@ export class LobbyPanel extends GamePanel {
   }
 
   public override close(): void {
+    if (this.closePlate) this.closePlate.hidden = true;
     this.settingsView?.pauseControls();
     this.welcomeGuide?.leaveLobby();
     this.demosView?.deactivate();
@@ -1739,6 +1748,7 @@ export class LobbyPanel extends GamePanel {
     this.welcomeGuide?.destroy();
     this.closeCredits(false);
     this.closeJoinDialog();
+    this.closePlate?.remove();
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);

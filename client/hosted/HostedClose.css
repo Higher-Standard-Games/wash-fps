@@ -1,0 +1,41 @@
+/* The demo player's exit plate (.dvh-exit), mirrored into the top-right corner */
+.hosted-close {
+  --hosted-close-width: max(calc(54px * var(--ui-scale, 1)), 44px);
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 901;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hosted-close-width);
+  padding: calc(8px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1)) calc(9px * var(--ui-scale, 1))
+    calc(22px * var(--ui-scale, 1));
+  padding-top: max(calc(8px * var(--ui-scale, 1)), env(safe-area-inset-top));
+  padding-right: max(calc(14px * var(--ui-scale, 1)), env(safe-area-inset-right));
+  border: 0;
+  cursor: var(--ui-cursor-hover, pointer);
+  color: #171326;
+  background: linear-gradient(120deg, #ffc52c, #efa600);
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%);
+  box-shadow: inset 0 -3px 0 #cd8600;
+  font-family: var(--w-font-display, "Orbitron", sans-serif);
+  /* The frame-rate plate's size, so the two plates are one height */
+  font-size: calc(17px * var(--ui-scale, 1));
+  font-weight: 900;
+  line-height: 1;
+}
+.hosted-close:hover {
+  filter: brightness(1.08);
+}
+.hosted-close:focus-visible {
+  outline: 2px solid #171326;
+  outline-offset: -4px;
+}
+.hosted-close[hidden] {
+  display: none;
+}
+/* The frame-rate plate moves aside, so the two sit side by side */
+body:has(.hosted-close:not([hidden])) .fps-frame-rate {
+  right: calc(max(calc(54px * var(--ui-scale, 1)), 44px) - 6px);
+}
