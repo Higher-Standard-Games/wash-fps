@@ -34,3 +34,9 @@ it("returns to main Play without rejoining the old private room", () => {
   expect(sessionStorage.getItem("shag.return_lobby")).toBeNull();
   expect(sessionStorage.getItem("shag.private_invite.room-one")).toBe("test-invite");
 });
+
+it("reloads its own page in a hosted build, which has no site root to go to", () => {
+  const navigate = vi.fn();
+  returnToLobby(navigate, true);
+  expect(navigate).toHaveBeenCalledWith(window.location.href);
+});

@@ -6,6 +6,7 @@
  * in from it. The demo does not run while the comic plays.
  */
 
+import { resolvePublicUrl } from "../../../../engine/core/PublicUrls";
 import { type CampaignCard, campaignOperationNumber, campaignStory } from "../campaign/CampaignStory";
 
 /** How long each panel holds the screen. */
@@ -42,7 +43,7 @@ export async function loadCampaignIntro(
   const card = story?.card;
   if (!missionId || !story || !card || card.panels.length === 0) return null;
   const image = new Image();
-  image.src = card.image;
+  image.src = resolvePublicUrl(card.image);
   try {
     await image.decode();
   } catch (error) {

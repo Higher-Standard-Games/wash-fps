@@ -7,6 +7,7 @@
  */
 
 import { background } from "../../../../engine/core/AsyncErrors";
+import { resolvePublicUrl } from "../../../../engine/core/PublicUrls";
 import { createRaisedKey, setRaisedKeyText } from "../../../../engine/ui/components/RaisedKey";
 import type { CampaignClear, CampaignMissionInfo } from "../../../../lobby/types";
 import { CampaignBoardPane } from "../CampaignBoardPane";
@@ -140,7 +141,7 @@ export class CampaignView {
     const banner = el("div", "campaign__banner");
     banner.setAttribute("aria-hidden", "true");
     const squad = el("img", "campaign__squad");
-    squad.src = SQUAD_IMAGE;
+    squad.src = resolvePublicUrl(SQUAD_IMAGE);
     squad.alt = "";
     squad.decoding = "async";
     // The street and the squad share one stage, at the scale they were drawn
@@ -289,8 +290,8 @@ export class CampaignView {
     if (story?.card) {
       const img = el("img", "campaign-card__img");
       // The whole card, at the size it is shown: the thumbnail on most screens, the full card on wide ones
-      img.src = story.card.thumb;
-      img.srcset = `${story.card.thumb} 720w, ${story.card.image} ${story.card.width}w`;
+      img.src = resolvePublicUrl(story.card.thumb);
+      img.srcset = `${resolvePublicUrl(story.card.thumb)} 720w, ${resolvePublicUrl(story.card.image)} ${story.card.width}w`;
       img.sizes = "(min-width: 2200px) 900px, 42vw";
       img.alt = status === "locked" ? "" : story.title;
       img.loading = "lazy";
@@ -404,8 +405,8 @@ export class CampaignView {
     const art = el("div", "campaign-finale__art");
     const drift = el("div", "campaign-finale__drift");
     const img = el("img", "campaign-finale__img");
-    img.src = FINALE_CARD.thumb;
-    img.srcset = `${FINALE_CARD.thumb} 720w, ${FINALE_CARD.image} ${FINALE_CARD.width}w`;
+    img.src = resolvePublicUrl(FINALE_CARD.thumb);
+    img.srcset = `${resolvePublicUrl(FINALE_CARD.thumb)} 720w, ${resolvePublicUrl(FINALE_CARD.image)} ${FINALE_CARD.width}w`;
     img.sizes = "(min-width: 2200px) 1500px, 64vw";
     img.alt = FINALE_TITLE;
     img.loading = "lazy";

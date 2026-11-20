@@ -1,3 +1,5 @@
+import { resolvePublicUrl } from "../../../engine/core/PublicUrls";
+
 /**
  * The frame the Welcome and Profile screens share: the gold panel — the rail
  * widened to hold one question at a time — beside a dark stage with its light
@@ -32,7 +34,7 @@ export function buildIdentityFrame(label: string, ghostText: string): IdentityFr
 
   const logo = document.createElement("img");
   logo.className = "welcome__logo";
-  logo.src = "/data/washoi.png";
+  logo.src = resolvePublicUrl("/data/washoi.png");
   logo.alt = "Washiki Washoi";
   const wordmark = document.createElement("span");
   wordmark.className = "welcome__wordmark";

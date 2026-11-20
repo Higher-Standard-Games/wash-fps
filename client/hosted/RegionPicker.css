@@ -1,0 +1,101 @@
+/* The region picker: the lobby's ink, cream, gold and violet, on the loading screen's dark ground. */
+.region-picker {
+  --cream: hsl(45 100% 95%);
+  --ink: hsl(250 45% 7%);
+  --gold: hsl(46 100% 60%);
+  --violet: hsl(276 90% 64%);
+  /* Launch is the lobby's arcade key, in gold, as the post-game's way home is */
+  --accent: hsl(46 100% 57%);
+  --accent-hi: hsl(51 100% 73%);
+  --accent-lo: hsl(42 100% 50%);
+  --accent-side-hi: hsl(36 92% 40%);
+  --accent-side-lo: hsl(28 88% 25%);
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: grid;
+  place-items: center;
+  padding: clamp(12px, 3vw, 44px);
+  box-sizing: border-box;
+  background: radial-gradient(ellipse at 50% 30%, #2a1840, #0b0712 70%);
+  color: var(--cream);
+  font-family: var(--w-font-body, sans-serif);
+}
+.region-picker *,
+.region-picker *::before,
+.region-picker *::after {
+  box-sizing: border-box;
+}
+.region-picker__card {
+  width: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(18px, 4vh, 36px);
+}
+.region-picker__title {
+  margin: 0;
+  font: 800 clamp(28px, 4.4vw, 46px) / 1.05 var(--w-font-display, sans-serif);
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+.region-picker__regions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.region-picker__region {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  justify-items: start;
+  padding: 18px 20px 20px;
+  border: 2px solid #ffffff22;
+  border-radius: 6px;
+  background: linear-gradient(160deg, #2d2740, #16121f);
+  color: var(--cream);
+  text-align: left;
+  font: inherit;
+  cursor: var(--ui-cursor-hover, pointer);
+  box-shadow: 0 6px 0 #0d0b16;
+}
+.region-picker__region:hover {
+  border-color: #ffffff55;
+}
+.region-picker__region--on {
+  border-color: var(--gold);
+  background: linear-gradient(160deg, #4a3a68, #221a33);
+}
+.region-picker__region:focus-visible {
+  outline: 3px solid var(--violet);
+  outline-offset: 3px;
+}
+.region-picker__code {
+  font: 800 40px / 1 var(--w-font-display, sans-serif);
+  color: var(--gold);
+}
+.region-picker__name {
+  font-weight: 700;
+  font-size: 18px;
+}
+.region-picker__host,
+.region-picker__ping {
+  font-size: 15px;
+  color: #fff6dfaa;
+}
+.region-picker__nearest {
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: var(--gold);
+  color: var(--ink);
+  font: 800 13px var(--w-font-display, sans-serif);
+  text-transform: uppercase;
+}
+.region-picker__nearest[hidden] {
+  display: none;
+}
+.region-picker__launch {
+  min-width: min(360px, 100%);
+}

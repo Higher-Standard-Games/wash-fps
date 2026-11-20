@@ -8,6 +8,7 @@ import { AudioManager } from "../../../engine/AudioManager";
 import { MENU_PLAYLIST } from "../../../engine/audio/MenuPlaylist";
 import { background } from "../../../engine/core/AsyncErrors";
 import { EngineVersion } from "../../../engine/core/EngineVersion";
+import { resolvePublicUrl } from "../../../engine/core/PublicUrls";
 import { DebugConsole } from "../../../engine/debug/DebugConsole";
 import { PlayerProfile } from "../../../engine/player/PlayerProfile";
 import { ConnectingOverlay } from "../../../engine/ui/components/ConnectingOverlay";
@@ -1460,7 +1461,7 @@ export class LobbyPanel extends GamePanel {
       if (this._preloadedLevelshots.has(map)) continue;
       this._preloadedLevelshots.add(map);
       const img = new Image();
-      img.src = `/data/levelshots/${map}.jpg`;
+      img.src = resolvePublicUrl(`/data/levelshots/${map}.jpg`);
       // No-op on success or error — purely warming the browser cache
     }
   }

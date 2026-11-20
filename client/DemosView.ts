@@ -20,6 +20,7 @@ import { REEL_MINUTES, reelLengths } from "./ReelLengths";
 
 export { reelLengths } from "./ReelLengths";
 
+import { resolvePublicUrl } from "../../../engine/core/PublicUrls";
 import demosCss from "./styles/Demos.css?raw";
 
 export type DemoScope = "latest" | "yours";
@@ -426,7 +427,7 @@ export class DemosView {
       if (!demo.levelshot || this.preloaded.has(demo.levelshot)) continue;
       this.preloaded.add(demo.levelshot);
       const image = new Image();
-      image.src = demo.levelshot;
+      image.src = resolvePublicUrl(demo.levelshot);
     }
   }
 
@@ -654,7 +655,7 @@ export class DemosView {
   /** A demo's colours and levelshot on a slab or pick; with no demo, the empty slab's. */
   private paint(node: HTMLElement, demo: DemoInfo | null): void {
     const mode = demo ? this.modeOf(demo) : null;
-    if (demo?.levelshot) node.style.setProperty("--img", `url("${demo.levelshot}")`);
+    if (demo?.levelshot) node.style.setProperty("--img", `url("${resolvePublicUrl(demo.levelshot)}")`);
     else node.style.removeProperty("--img");
     node.style.setProperty("--m", mode?.mark ?? "hsl(250 36% 30%)");
     node.style.setProperty("--mode-mark", mode?.mark ?? "hsl(250 36% 30%)");

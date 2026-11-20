@@ -5,6 +5,7 @@
 
 import { background } from "../../../../engine/core/AsyncErrors";
 import { Cvar } from "../../../../engine/core/Cvar";
+import { resolvePublicUrl } from "../../../../engine/core/PublicUrls";
 import {
   PLAYER_MODEL_LABELS,
   PLAYER_MODEL_PREVIEW_IMAGES,
@@ -43,7 +44,7 @@ function svgEl<K extends keyof SVGElementTagNameMap>(
 /** A slice of an installed map behind a preview; a gradient when it is not there. */
 function scene(map: string): HTMLElement {
   const root = el("div", "fps-set-scene");
-  root.style.setProperty("--img", `url("/data/levelshots/${map}.jpg")`);
+  root.style.setProperty("--img", `url("${resolvePublicUrl(`/data/levelshots/${map}.jpg`)}")`);
   root.append(el("span", "fps-set-scene__tag", "Preview"));
   return root;
 }
@@ -126,7 +127,8 @@ export class GameplayPage {
       this.host.addRefresh(() => {
         const model = playerModelChoice(side);
         menu.select(settings.indexOf(playerModelSetting(side)));
-        const path = PLAYER_MODEL_PREVIEW_IMAGES[model];
+        const preview = PLAYER_MODEL_PREVIEW_IMAGES[model];
+        const path = preview ? resolvePublicUrl(preview) : preview;
         image.hidden = !path;
         placeholder.hidden = !!path;
         placeholder.textContent = PLAYER_MODEL_LABELS[model];

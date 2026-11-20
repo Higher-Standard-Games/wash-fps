@@ -25,6 +25,7 @@ import { MatchStateManager } from "./MatchStateManager";
 import matchMenuCss from "./styles/MatchMenu.css?raw";
 
 import "../../../engine/ui/components/styles/ConnectingOverlay.css";
+import { resolvePublicUrl } from "../../../engine/core/PublicUrls";
 
 export type SpectatorMode = "join-overlay" | "freefly" | "first-person" | "hidden";
 
@@ -277,7 +278,11 @@ export class SpectatorOverlay {
     this.rail.setFact("mode", "Mode", state.gametypeName || "—");
     this.rail.setFact("map", "Map", map || "—");
     // A map with no levelshot installed keeps the stage's own gradient
-    if (map) this.shotEl.style.setProperty("--co-shot", `url("/data/levelshots/${encodeURIComponent(map)}.jpg")`);
+    if (map)
+      this.shotEl.style.setProperty(
+        "--co-shot",
+        `url("${resolvePublicUrl(`/data/levelshots/${encodeURIComponent(map)}.jpg`)}")`,
+      );
     else this.shotEl.style.removeProperty("--co-shot");
 
     const joinKey = getActionKeyLabel(FPS.JOIN_GAME);

@@ -6,6 +6,7 @@
  * stays black, with a status line, until the match connects.
  */
 
+import { resolvePublicUrl } from "../../../../engine/core/PublicUrls";
 import type { CampaignCard, CardPanel } from "./CampaignStory";
 
 /** How long a panel holds, once it has settled on screen, before the next one. */
@@ -94,7 +95,7 @@ export class CampaignCutscene {
     const blurred = el("img", "campaign-cut__art campaign-cut__art--blur");
     this.sharp = el("img", "campaign-cut__art campaign-cut__art--sharp");
     for (const image of [blurred, this.sharp]) {
-      image.src = card.image;
+      image.src = resolvePublicUrl(card.image);
       image.alt = "";
       image.draggable = false;
     }

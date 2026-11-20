@@ -25,6 +25,7 @@ import { Cvar } from "../../../engine/core/Cvar";
 import { EngineVersion } from "../../../engine/core/EngineVersion";
 import { GamePaths } from "../../../engine/core/GamePaths";
 import type { LoadingProgressEvent, LoadingStartEvent } from "../../../engine/core/LoadingEvents";
+import { hostedDataBase, resolvePublicUrl } from "../../../engine/core/PublicUrls";
 import { DebugConsole } from "../../../engine/debug";
 import { BrowserEditorHost } from "../../../engine/editor/BrowserEditorHost";
 import { PLAYTEST_RETURN_KEY, registerEditorLauncher } from "../../../engine/editor/EditorLauncher";
@@ -54,6 +55,7 @@ import { FPSController } from "../camera/FPSController";
 import { FPSPlayer } from "../FPSPlayer";
 import gameJson from "../game.json";
 import { ControllerInput } from "./ControllerInput";
+import { HOSTED_ON } from "./hosted/HostedBuild";
 import { FrameRateDisplay } from "./hud/FrameRateDisplay";
 import { LobbyPanel } from "./LobbyPanel";
 import { registerWashoiServices } from "./registerServices";
@@ -81,9 +83,12 @@ async function main() {
     return;
   }
 
+  // A hosted build (itch.io) asks for the region first: it supplies the lobby and the data
+  const hosted = HOSTED_ON ? await (await import("./hosted/StartHosted")).startHostedBuild() : null;
+
   // Show progress before any asynchronous initialization can fail.
   configureLobbyTwin({
-    brand: { logo: "/data/washoi.png", name: "WASHIKI WASHOI" },
+    brand: { logo: resolvePublicUrl("/data/washoi.png"), name: "WASHIKI WASHOI" },
   });
   const loadingScreen = new LoadingScreen();
   loadingScreen.show();
@@ -160,7 +165,7 @@ async function main() {
 
   // Build PK3 index
   const pk3Index = PK3Index.getInstance();
-  pk3Index.setSearchPaths(["data/"]);
+  pk3Index.setSearchPaths([hostedDataBase() ?? "data/"]);
   loadingScreen.setStep("packages");
   await pk3Index.ensureIndex((msg) => loadingScreen.setStatus(msg));
   loadingScreen.setStep("engine");
@@ -238,6 +243,9 @@ async function main() {
   // Everything is loaded: the bar fills and the start button comes up (a
   // player who clicked early goes straight on)
   loadingScreen.markReady();
+  // The region picker's Launch was the player's click. It counts once loading
+  // is done: the click starts the menu music, which needs the package index.
+  if (hosted?.launched) LoadingScreen.forceDismiss();
   await userReadyPromise;
 
   // Stop piping progress to splash screen

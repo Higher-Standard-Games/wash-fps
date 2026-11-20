@@ -6,7 +6,13 @@ import type { WelcomeMessage } from "../../../lobby/types";
 import { isBotName } from "../shared/bot/BotNames";
 import { DemoService } from "./DemoService";
 
-const DEFAULT_LOBBY_URL = import.meta.env.VITE_LOBBY_URL || "ws://localhost:9000";
+/** The lobby this client talks to: fixed at build time, or the region picked in a hosted build. */
+let lobbyUrl = import.meta.env.VITE_LOBBY_URL || "ws://localhost:9000";
+
+/** Use another lobby from now on. Called before the first connection. */
+export function setFpsLobbyUrl(url: string): void {
+  lobbyUrl = url;
+}
 
 let sharedClient: LobbyClient | null = null;
 let connectPromise: Promise<LobbyClient> | null = null;
@@ -23,7 +29,7 @@ export function getFpsLobbyClient(): LobbyClient {
   return sharedClient;
 }
 
-export async function ensureFpsLobbyConnection(url: string = DEFAULT_LOBBY_URL): Promise<LobbyClient> {
+export async function ensureFpsLobbyConnection(url: string = lobbyUrl): Promise<LobbyClient> {
   const client = getFpsLobbyClient();
   if (client.connected && authenticated) {
     return client;
@@ -55,7 +61,7 @@ export async function ensureFpsLobbyConnection(url: string = DEFAULT_LOBBY_URL):
  * once, so this reconnects. If the lobby refuses the key (LoginError, usually
  * "unknown_key"), this logs back in with the key already stored, then rejects.
  */
-export async function switchFpsAccount(pastedKey: string, url: string = DEFAULT_LOBBY_URL): Promise<WelcomeMessage> {
+export async function switchFpsAccount(pastedKey: string, url: string = lobbyUrl): Promise<WelcomeMessage> {
   if (!normalizeKey(pastedKey)) throw new LoginError("unknown_key");
   const client = getFpsLobbyClient();
   // Let a login already under way finish, so it can't answer for the new connection
