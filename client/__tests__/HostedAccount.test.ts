@@ -176,10 +176,20 @@ describe("the welcome guide's key step", () => {
     expect(plate.classList.contains("lobby-guide__key--hidden")).toBe(false);
   });
 
-  it("has no key step once the key has gone, nor outside a hosted build", async () => {
+  it("has no key step once a hosted build's key has gone", async () => {
     localStorage.setItem("shag_login_token:eu", "t1");
     await logIn(lobby(() => welcome({ token: "t2" })));
     openGuide();
     expect(steps()).toEqual(["Terms of service", "Your keys", "Tip of the day"]);
+  });
+
+  it("keeps the key step on a region's own site, which stores the key, with its own wording", async () => {
+    resetAccountSessionForTests();
+    await logIn(lobby(() => welcome({ key: KEY })));
+    openGuide();
+    expect(steps()).toEqual(["Terms of service", "Your keys", "Tip of the day", "Your account"]);
+    const step = document.querySelector(".lobby-guide__key")!.closest("section")!;
+    expect(step.textContent).toContain("Keep a copy somewhere safe");
+    expect(step.textContent).not.toContain("only until you leave");
   });
 });

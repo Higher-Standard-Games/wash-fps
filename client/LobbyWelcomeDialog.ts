@@ -3,7 +3,7 @@ import { InputSystem } from "../../../engine/input/InputSystem";
 import { copyText } from "../../../engine/ui/CopyText";
 import { raiseKey, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
-import { currentIdentity, keyToSaveNow } from "../../../lobby/AccountSession";
+import { currentIdentity, keyKeptOnlyThisVisit, keyToSaveNow } from "../../../lobby/AccountSession";
 import { formatKey } from "../../../lobby/PlayerIdentity";
 import privacy from "../PRIVACY.md?raw";
 import { DEFAULT_FPS_MOVEMENT_CONFIG } from "../simulation/MovementProfile";
@@ -115,7 +115,8 @@ export class LobbyWelcomeDialog {
     tablist.setAttribute("role", "tablist");
     tablist.setAttribute("aria-label", "Welcome guide");
     const content = el("div", "lobby-guide__content");
-    // A hosted build shows the key in the session that made it, and only then
+    // The key to copy to safety, whenever this session has it: a hosted build
+    // has it only in the session that made or pasted it
     this.keyToSave = keyToSaveNow();
     const names = ["Terms of service", "Your keys", "Tip of the day", ...(this.keyToSave ? ["Your account"] : [])];
     this.names = names;
@@ -283,7 +284,9 @@ export class LobbyWelcomeDialog {
       el(
         "p",
         "",
-        "This key is your player. This page keeps it only until you leave, and comes back as the same player without it. To play as this player in another browser, on washoi.net or in the Washoi app, paste the key under Use my key.",
+        keyKeptOnlyThisVisit()
+          ? "This key is your player. This page keeps it only until you leave, and comes back as the same player without it. To play as this player in another browser, on washoi.net or in the Washoi app, paste the key under Use my key."
+          : "This key is your player. To play as this player in another browser, on another computer or in the Washoi app, paste the key under Use my key. Keep a copy somewhere safe: nobody can get it back for you.",
       ),
       plate,
       actions,
