@@ -354,6 +354,14 @@ export class LobbyPanel extends GamePanel {
     this.downloads = new LobbyDownloadIndicator();
     this.musicKey = createLobbyMusicKey();
     links.prepend(this.downloads.root, this.versionTag, this.devlogLink, this.creditsKey, this.musicKey);
+    // A friend's room, from their invite code or link: at the foot of the Play
+    // page, on the line of the rail's own small keys
+    const joinButton = createRaisedKey({ label: "Join lobby via invite", variants: ["sm", "util"] });
+    joinButton.classList.add("lobby__join-invite");
+    joinButton.addEventListener("click", () => this.openJoinDialog());
+    joinButton.disabled = !this.lobbyClient.connected;
+    this.joinButton = joinButton;
+    links.prepend(joinButton);
     this.connected = this.initLobbyConnection();
     // Back from a campaign match: the campaign is where the player was
     if (takeCampaignReturn()) this.switchTab("campaign");
@@ -399,6 +407,7 @@ export class LobbyPanel extends GamePanel {
     this.creditsKey.hidden = this.currentTabId !== "matchmaking" || this.matchLobbyView !== null;
     if (this.versionTag) this.versionTag.hidden = this.creditsKey.hidden;
     if (this.devlogLink) this.devlogLink.hidden = this.creditsKey.hidden;
+    if (this.joinButton) this.joinButton.hidden = this.creditsKey.hidden;
     if (this.musicKey) this.musicKey.hidden = this.creditsKey.hidden;
     if (this.creditsKey.hidden) this.closeCredits(false);
   }
@@ -1228,11 +1237,7 @@ export class LobbyPanel extends GamePanel {
     privateButton.addEventListener("click", () => this.showPrivateLobby(this.selectedModeId));
     privateButton.disabled = true;
     privateButton.title = "Connect to a lobby server with private rooms.";
-    const joinButton = createRaisedKey({ label: "Join lobby", variants: ["cream"] });
-    this.joinButton = joinButton;
-    joinButton.addEventListener("click", () => this.openJoinDialog());
-    joinButton.disabled = true;
-    actions.append(this.findButton, privateButton, joinButton);
+    actions.append(this.findButton, privateButton);
 
     const notice = document.createElement("p");
     notice.className = "lobby__play-notice";

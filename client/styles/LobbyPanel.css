@@ -712,6 +712,16 @@
   padding: 0 max(52px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) calc(28px + var(--rail-skew));
 }
 
+/* Join lobby via invite: alone on the left, the other links stay on the right */
+.lobby__join-invite {
+  align-self: flex-end;
+  width: auto;
+  margin-right: auto;
+  /* On the line of the rail's Profile / Settings / Console keys: the rail
+     ends 18px above the bottom, this bar 12px */
+  translate: 0 -6px;
+}
+
 .lobby__links:not(:has(> :not([hidden]))) {
   display: none;
 }
