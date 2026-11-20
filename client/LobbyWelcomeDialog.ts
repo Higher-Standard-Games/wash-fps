@@ -287,11 +287,6 @@ export class LobbyWelcomeDialog {
       ),
       plate,
       actions,
-      el(
-        "p",
-        "lobby-guide__muted",
-        "Anyone who has the key can play as you. Profile shows it until you leave this page.",
-      ),
     );
   }
 
