@@ -15,7 +15,8 @@ anytime with **?** in the lobby's bottom-right footer.
 
 ## 2. Make practice easy: add bots
 
-The quickest way is **Quick play**, the pink key at the top of the rail: it
+The quickest way is **Quick play**, the first card on the lobby's Home page
+(or the pink key at the top of the rail): it
 opens a private FFA room, adds four bots and votes a random map. Press
 **Ready** when you are set; the match loads once you are ready.
 

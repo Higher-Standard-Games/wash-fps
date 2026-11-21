@@ -52,6 +52,7 @@ import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
 import { devLog } from "./DevLog";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
+import { HomeView } from "./HomeView";
 import { HOSTED_ON } from "./hosted/HostedBuild";
 import { hostedClosePlate } from "./hosted/HostedClose";
 import { JoinLobbyDialog } from "./JoinLobbyDialog";
@@ -71,6 +72,7 @@ import { roomJoinKey } from "./RoomJoinKey";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
 import campaignCSSRaw from "./styles/Campaign.css?raw";
 import creditsCSSRaw from "./styles/CreditsDialog.css?raw";
+import homeCSSRaw from "./styles/HomeView.css?raw";
 import lobbyCSSRaw from "./styles/LobbyPanel.css?raw";
 import { WelcomeOverlay } from "./WelcomeOverlay";
 
@@ -216,7 +218,7 @@ export class LobbyPanel extends GamePanel {
   private readonly railMids = new Map<string, HTMLElement>();
   private playerNameEl: HTMLElement | null = null;
   private selectedModeId = "duel";
-  private currentTabId = "matchmaking";
+  private currentTabId = "home";
   private queuePending = false;
   private playNoticeEl: HTMLElement | null = null;
   private findButton: HTMLButtonElement | null = null;
@@ -229,6 +231,7 @@ export class LobbyPanel extends GamePanel {
   /** The room Quick play opened, while the player is in it: Quick play leads back to it. */
   private quickPlayLobbyId: string | null = null;
   private quickPlayKey: HTMLButtonElement | null = null;
+  private homeView: HomeView | null = null;
 
   private campaignView: CampaignView | null = null;
   /**
@@ -285,13 +288,16 @@ export class LobbyPanel extends GamePanel {
     bindFeaturedDemos(this.lobbyClient, false);
     bindCampaignBoard(this.lobbyClient, false);
     UIStyles.injectCSS("campaign", campaignCSSRaw);
+    UIStyles.injectCSS("lobby-home", homeCSSRaw);
+    this.addTab("home", "Home", this.buildHomeTab());
     this.addTab("campaign", "Campaign", this.buildCampaignTab());
     this.addTab("matchmaking", "Play online", this.buildMatchmakingTab());
     this.addTab("leaderboard", "Leaderboard", this.buildLeaderboardTab());
     this.addTab("demos", "Demos", this.buildDemosTab());
     this.addTab("settings", "Settings", this.buildSettingsTab());
     this.useRailLayout(this.buildRail());
-    this.switchTab("matchmaking");
+    // The lobby opens on Home: three ways into the game, before the mode list
+    this.switchTab("home");
     this.onTabChange((tabId) => {
       this.currentTabId = tabId;
       for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-tab-id]")) {
@@ -316,7 +322,6 @@ export class LobbyPanel extends GamePanel {
       this.welcomeGuide?.refresh();
       this.syncCredits();
     });
-    this.tabBar.querySelector('[data-tab-id="matchmaking"]')?.setAttribute("aria-current", "page");
     const links = document.createElement("nav");
     links.className = "lobby__links";
     links.setAttribute("aria-label", "Lobby links");
@@ -335,7 +340,7 @@ export class LobbyPanel extends GamePanel {
     this.welcomeGuide = new LobbyWelcomeGuide({
       root: this.root,
       helpParent: links,
-      showHelp: () => this.currentTabId === "matchmaking" && !this.matchLobbyView,
+      showHelp: () => (this.currentTabId === "home" || this.currentTabId === "matchmaking") && !this.matchLobbyView,
       canOpen: () => !this.welcomeOverlay && !this.profileView?.isOpen && !this.lobbyFullNotice?.isFull,
       prepareOpen: () => this.settingsView?.pauseControls(),
       openControls: (back) => {
@@ -347,7 +352,7 @@ export class LobbyPanel extends GamePanel {
       finished: () => this.runDeepLinkJoin(),
     });
     this.creditsKey = this.buildCreditsKey();
-    // The version beside Credits, so a screenshot for a bug report carries it.
+    // The version in the footer, so a screenshot for a bug report carries it.
     this.versionTag = document.createElement("span");
     this.versionTag.className = "lobby-version";
     this.versionTag.textContent = EngineVersion.getInstance().getVersionString();
@@ -360,7 +365,7 @@ export class LobbyPanel extends GamePanel {
     this.devlogLink.title = "News from the team, in a new tab";
     this.downloads = new LobbyDownloadIndicator();
     this.musicKey = createLobbyMusicKey();
-    links.prepend(this.downloads.root, this.versionTag, this.devlogLink, this.creditsKey, this.musicKey);
+    links.prepend(this.versionTag, this.downloads.root, this.devlogLink, this.creditsKey, this.musicKey);
     // A friend's room, from their invite code or link: at the foot of the Play
     // page, on the line of the rail's own small keys
     const joinButton = createRaisedKey({ label: "Join lobby via invite", variants: ["sm", "util"] });
@@ -447,7 +452,15 @@ export class LobbyPanel extends GamePanel {
     rail.setAttribute("aria-label", "Main menu");
     this.railEl = rail;
 
-    rail.appendChild(buildRailBrand("lobby__rail-brand"));
+    // The logo leads Home, the three ways into the game; Home has no key of its own
+    const brand = document.createElement("button");
+    brand.type = "button";
+    brand.className = "lobby__rail-brand lobby__rail-home";
+    brand.setAttribute("aria-label", "Home");
+    brand.append(...buildRailBrand("").childNodes);
+    brand.addEventListener("click", () => this.switchTab("home"));
+    rail.appendChild(brand);
+    this.tabButton("home")?.remove();
 
     const nav = document.createElement("nav");
     nav.className = "lobby__rail-nav";
@@ -562,6 +575,8 @@ export class LobbyPanel extends GamePanel {
           this.queuePending ||
           this.currentLobbyId !== null ||
           newUiApi.getMode(QUICK_PLAY_MODE, this.serverGametypes).status !== "ready"));
+    // Home's Quick play card is the same key, in the same state
+    this.homeView?.setQuickPlayEnabled(!this.quickPlayKey.disabled);
   }
 
   /** A private FFA room that adds its bots, votes a map and readies up by itself. */
@@ -1078,6 +1093,9 @@ export class LobbyPanel extends GamePanel {
     }
     if (!this.modesContainer || !this.playBodyEl) return;
 
+    // A room is shown on the Play page; one that opens while Home is up goes there
+    if (this.currentTabId === "home") this.switchTab("matchmaking");
+
     // Create match lobby view with real server data
     this.matchLobbyView = new MatchLobbyView(
       lobby.gametype,
@@ -1550,6 +1568,17 @@ export class LobbyPanel extends GamePanel {
   // TAB: CAMPAIGN
   // ═══════════════════════════════════════════════════════════════════
 
+  /** Home: the same three ways in as the rail's Quick play, Campaign and Play online keys. */
+  private buildHomeTab(): HTMLElement {
+    this.homeView = new HomeView({
+      quickPlay: () => this.startQuickPlay(),
+      campaign: () => this.switchTab("campaign"),
+      playOnline: () => this.switchTab("matchmaking"),
+    });
+    this.homeView.setQuickPlayEnabled(false);
+    return this.homeView.root;
+  }
+
   private buildCampaignTab(): HTMLElement {
     this.campaignView = new CampaignView({
       start: (mission) => this.startCampaignMission(mission),
@@ -1754,6 +1783,7 @@ export class LobbyPanel extends GamePanel {
     bindFeaturedDemos(this.lobbyClient, false);
     bindCampaignBoard(this.lobbyClient, false);
     this.demosView?.destroy();
+    this.homeView?.destroy();
     this.leaderboardView?.destroy();
     this.roomChatView?.destroy();
     this.matchLobbyView?.destroy();
