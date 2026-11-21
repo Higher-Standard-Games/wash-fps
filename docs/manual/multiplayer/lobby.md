@@ -4,6 +4,8 @@ The lobby is the game's front door: it knows who you are, finds you a room, star
 
 ## The lobby screen
 
+The lobby opens on **Home**: three big cards, **Quick play**, **Campaign** and **Play online**, each doing exactly what the key of the same name does. Click the Washoi logo at the top of the rail to come back to it.
+
 The gold rail on the left is the whole menu:
 
 | Key | What it opens |

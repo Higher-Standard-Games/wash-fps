@@ -278,6 +278,28 @@
   display: none;
 }
 
+/* The logo is Home's key: a plain button that lifts a little under the pointer */
+.lobby__rail-home {
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: var(--ui-cursor-hover, pointer);
+}
+.lobby__rail-home img {
+  transition:
+    transform 0.25s ease,
+    filter 0.25s ease;
+}
+.lobby__rail-home:is(:hover, :focus-visible) img {
+  transform: translateY(-2px) scale(1.02);
+  filter: drop-shadow(0 9px 12px hsla(28, 90%, 14%, 0.45));
+}
+.lobby__rail-home:focus-visible {
+  outline: 3px solid hsl(250 45% 8%);
+  outline-offset: -2px;
+}
+
 .lobby__rail-nav,
 .lobby__rail-utility {
   flex: 0 0 auto;
@@ -1483,9 +1505,17 @@
   }
 
   .game-panel--rail .lobby__rail::after,
-  .lobby__rail-brand,
   .lobby__rail-player {
     display: none;
+  }
+
+  /* The logo stays, small, as the way back to Home */
+  .lobby__rail-brand {
+    padding: 0 12px 8px;
+  }
+  .lobby__rail-brand img {
+    width: auto;
+    height: 44px;
   }
 
   .lobby__rail-nav,
